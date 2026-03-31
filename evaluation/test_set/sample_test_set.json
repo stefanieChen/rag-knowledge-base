@@ -1,0 +1,41 @@
+[
+    {
+        "question": "What is RAG and how does it work?",
+        "ground_truth": "RAG (Retrieval-Augmented Generation) combines information retrieval with text generation. It first retrieves relevant documents from a knowledge base, then uses those documents as context for a language model to generate accurate answers.",
+        "contexts": [
+            "RAG (Retrieval-Augmented Generation) is a technique that enhances LLM outputs by first retrieving relevant documents from a knowledge base, then using those documents as context for generation.",
+            "The RAG pipeline works in three steps: 1) embed the user query, 2) search the vector store for similar documents, 3) feed the retrieved context to the LLM to generate an answer."
+        ]
+    },
+    {
+        "question": "What embedding model does this system use?",
+        "ground_truth": "The system uses bge-m3 as the embedding model, served locally through Ollama.",
+        "contexts": [
+            "The embedding model used is bge-m3, a multilingual embedding model that supports Chinese and English text. It is served via Ollama locally.",
+            "Embeddings are generated using OllamaEmbeddings with the bge-m3 model, which produces dense vector representations for semantic search."
+        ]
+    },
+    {
+        "question": "How does hybrid retrieval improve search quality?",
+        "ground_truth": "Hybrid retrieval combines dense vector search (semantic similarity) with BM25 sparse search (keyword matching) using Reciprocal Rank Fusion (RRF), followed by cross-encoder reranking to improve precision.",
+        "contexts": [
+            "Hybrid retrieval merges results from dense vector search and BM25 keyword-based search using Reciprocal Rank Fusion (RRF). This combines semantic understanding with exact keyword matching for better coverage.",
+            "After RRF fusion, a cross-encoder reranker (bge-reranker-v2-m3) scores each (query, document) pair to further improve ranking precision."
+        ]
+    },
+    {
+        "question": "What document formats are supported?",
+        "ground_truth": "The system supports PDF, PowerPoint (PPTX), Markdown, and plain text files. It can also extract and describe images from documents using a multimodal LLM, and convert tables to Markdown with LLM summaries.",
+        "contexts": [
+            "Supported document formats include PDF (parsed via pymupdf4llm), PowerPoint PPTX (parsed via python-pptx), Markdown (section-based parser), and plain text files.",
+            "The system includes image handling using llava multimodal LLM for image description, and table handling that converts tables to Markdown format with optional LLM-generated summaries."
+        ]
+    },
+    {
+        "question": "What is the chunking strategy used?",
+        "ground_truth": "The system uses RecursiveCharacterTextSplitter with a chunk size of 512 characters and 64 characters of overlap, using newline, period, and space as separators.",
+        "contexts": [
+            "Documents are chunked using RecursiveCharacterTextSplitter from LangChain with chunk_size=512 and chunk_overlap=64. The separators include newline, Chinese period, English period, and space."
+        ]
+    }
+]

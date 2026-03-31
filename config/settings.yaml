@@ -1,0 +1,136 @@
+# RAG System Configuration
+# ========================
+
+# LLM Settings
+llm:
+  # model: "qwen2.5:7b"
+  model: "qwen2.5:3b"
+  base_url: "http://localhost:11434"
+  temperature: 0.1
+  num_ctx: 4096
+
+# Embedding Settings
+embedding:
+  model: "bge-m3"
+  base_url: "http://localhost:11434"
+  batch_size: 32
+
+# Vector Store Settings
+vector_store:
+  type: "chromadb"
+  persist_directory: "./data/chromadb"
+  collection_name: "rag_knowledge_base"
+  code_collection_name: "rag_code_base"
+
+# Chunking Settings
+chunking:
+  chunk_size: 512
+  chunk_overlap: 64
+  separators:
+    - "\n\n"
+    - "\n"
+    - "。"
+    - "."
+    - " "
+
+# Retrieval Settings
+retrieval:
+  top_k: 20
+  top_n: 5
+  similarity_threshold: 0.35
+  bm25_top_k: 20
+  rrf_k: 60
+  hybrid_mode: true
+  enable_reranker: true
+
+# Reranker Settings
+reranker:
+  model: "BAAI/bge-reranker-v2-m3"
+  local_model_path: "./models/bge-reranker-v2-m3"  # Pre-downloaded model (run: python scripts/download_reranker.py)
+  top_n: 5
+  timeout: 30  # Timeout in seconds for model download
+  max_retries: 3  # Maximum retry attempts for initialization
+  fallback_to_dense: true  # Fall back to dense-only if reranker fails
+
+# Logging Settings
+logging:
+  level: "INFO"
+  log_dir: "./logs"
+  enable_rag_trace: true
+  trace_dir: "./logs/rag_traces"
+  trace_retention_days: 30
+  log_format: "[%(asctime)s] %(levelname)s %(name)s - %(message)s"
+
+# Evaluation Settings
+evaluation:
+  test_set: "evaluation/test_set/sample_test_set.json"
+  output_dir: "evaluation/results"
+  frameworks:
+    - "ragas"
+    - "deepeval"
+
+# Code Ingestion Settings
+code_ingestion:
+  # ASTChunk supported languages (AST-based chunking)
+  ast_languages:
+    - "python"
+    - "java"
+    - "csharp"
+    - "typescript"
+  # All supported code file extensions
+  supported_extensions:
+    - ".py"
+    - ".js"
+    - ".ts"
+    - ".tsx"
+    - ".jsx"
+    - ".java"
+    - ".cs"
+    - ".go"
+    - ".rs"
+    - ".cpp"
+    - ".c"
+    - ".h"
+    - ".hpp"
+    - ".rb"
+    - ".php"
+    - ".sh"
+    - ".sql"
+    - ".yaml"
+    - ".yml"
+    - ".json"
+    - ".toml"
+    - ".xml"
+    - ".css"
+    - ".scss"
+  max_file_size_kb: 500
+  exclude_patterns:
+    - "node_modules"
+    - "venv"
+    - ".venv"
+    - "__pycache__"
+    - ".git"
+    - "dist"
+    - "build"
+    - ".tox"
+    - ".egg-info"
+  chunk_size: 1500
+  chunk_overlap: 1
+  chunk_expansion: true
+  repos_dir: "./data/repos"
+
+# Monitoring & Observability
+monitoring:
+  phoenix:
+    enabled: false  # Set to true after: pip install arize-phoenix opentelemetry-sdk opentelemetry-exporter-otlp openinference-instrumentation-langchain
+    endpoint: "http://localhost:6006/v1/traces"
+    project_name: "rag-knowledge-base"
+  mlflow:
+    enabled: false  # Set to true after: pip install mlflow
+    tracking_uri: "mlruns"
+    experiment_name: "rag-knowledge-base"
+
+# Data Directories
+data:
+  raw_dir: "./data/raw"
+  processed_dir: "./data/processed"

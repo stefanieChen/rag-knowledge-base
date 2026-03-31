@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data & models (large files)
+data/raw/
+data/chromadb/
+data/repos/
+data/processed/
+models/
+*.bin
+*.pt
+*.onnx
+*.safetensors
+
+# Logs
+logs/
+*.log
+
+# Evaluation results (regeneratable)
+evaluation/results/
+
+# DeepEval cache
+.deepeval/
+
+# pytest cache
+.pytest_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+
+# Windsurf IDE
+.windsurf/
+
+# MLflow local tracking (will be regenerated)
+mlruns/
+mlartifacts/

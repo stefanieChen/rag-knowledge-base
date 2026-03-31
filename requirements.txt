@@ -1,0 +1,52 @@
+# --- Phase 1 + 1.5: Core pipeline + structured prompts ---
+langchain>=1.0
+langchain-ollama>=1.0
+langchain-text-splitters>=1.0
+langchainhub>=0.1
+chromadb>=1.0
+pyyaml>=6.0
+
+# --- Phase 2: Document parsing (PDF, PPT, images) ---
+pymupdf4llm>=1.0
+python-pptx>=1.0
+Pillow>=10.0
+
+# --- Phase 3: Hybrid retrieval + rerank + query rewrite ---
+rank-bm25>=0.2.2
+sentence-transformers>=3.0
+torch>=2.0
+torchvision>=0.15
+transformers>=4.36
+
+# --- Phase 4: Evaluation + DSPy prompt optimization ---
+ragas>=0.4
+deepeval>=3.0
+# dspy-ai>=2.0
+
+# --- Phase 5: OneNote support + Web UI ---
+streamlit>=1.30
+beautifulsoup4>=4.12
+lxml>=5.0
+
+# --- Phase 6: Code knowledge ingestion ---
+astchunk>=0.1.0
+pathspec>=0.12
+
+# --- Phase 6b: RepoMap (tree-sitter + PageRank) ---
+networkx>=3.0
+tree-sitter>=0.23
+tree-sitter-python>=0.23
+tree-sitter-java>=0.23
+tree-sitter-c-sharp>=0.23
+tree-sitter-typescript>=0.23
+
+# --- Phase 7: Observability (Phoenix + MLflow) ---
+# Uncomment and install when ready to enable monitoring:
+# arize-phoenix>=5.0
+# opentelemetry-sdk>=1.20
+# opentelemetry-exporter-otlp>=1.20
+# openinference-instrumentation-langchain>=0.1
+# mlflow>=2.10
+
+# --- Future: Context compression ---
+# llmlingua>=0.2
