@@ -132,42 +132,54 @@ class HybridRetriever:
         start = time.perf_counter()
 
         # 1. Dense retrieval (vector similarity) — scope-aware
-        dense_results = []
+        # Use configured similarity_threshold (not 0.0) to filter irrelevant results
+        dense_doc_results = []
+        dense_code_results = []
         if search_scope in ("all", "docs"):
-            dense_results.extend(self._doc_store.search(
+            dense_doc_results = self._doc_store.search(
                 query=query,
                 top_k=self._dense_top_k,
-                similarity_threshold=0.0,
-            ))
+            )
         if search_scope in ("all", "code") and self._code_store:
-            dense_results.extend(self._code_store.search(
+            dense_code_results = self._code_store.search(
                 query=query,
                 top_k=self._dense_top_k,
-                similarity_threshold=0.0,
-            ))
+            )
 
         # 2. Sparse retrieval (BM25) — scope-aware
-        sparse_results = []
+        sparse_doc_results = []
+        sparse_code_results = []
         if search_scope in ("all", "docs"):
-            sparse_results.extend(self._bm25_doc.search(
+            sparse_doc_results = self._bm25_doc.search(
                 query=query,
                 top_k=self._sparse_top_k,
-            ))
+            )
         if search_scope in ("all", "code") and self._bm25_code.document_count > 0:
-            sparse_results.extend(self._bm25_code.search(
+            sparse_code_results = self._bm25_code.search(
                 query=query,
                 top_k=self._sparse_top_k,
-            ))
+            )
 
-        # 3. RRF fusion
-        fused = reciprocal_rank_fusion(
-            [dense_results, sparse_results],
-            k=self._rrf_k,
-        )
+        # 3. RRF fusion — use separate lists per source so doc and code
+        #    get equal weight instead of code dominating both merged lists
+        rrf_lists = []
+        if dense_doc_results:
+            rrf_lists.append(dense_doc_results)
+        if dense_code_results:
+            rrf_lists.append(dense_code_results)
+        if sparse_doc_results:
+            rrf_lists.append(sparse_doc_results)
+        if sparse_code_results:
+            rrf_lists.append(sparse_code_results)
 
+        fused = reciprocal_rank_fusion(rrf_lists, k=self._rrf_k) if rrf_lists else []
+
+        dense_total = len(dense_doc_results) + len(dense_code_results)
+        sparse_total = len(sparse_doc_results) + len(sparse_code_results)
         logger.info(
-            f"Hybrid fusion ({search_scope}): {len(dense_results)} dense + "
-            f"{len(sparse_results)} sparse → {len(fused)} fused"
+            f"Hybrid fusion ({search_scope}): {dense_total} dense + "
+            f"{sparse_total} sparse → {len(fused)} fused "
+            f"(RRF lists: {len(rrf_lists)})"
         )
 
         # 4. Optional reranking

@@ -12,7 +12,6 @@ from typing import Dict, List, Optional
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
-from src.ingestion.table_handler import table_to_markdown
 from src.logging.logger import get_logger
 
 logger = get_logger("ingestion.pptx_parser")
@@ -99,6 +98,23 @@ def parse_pptx(
             }
             documents.append({"content": content, "metadata": metadata})
 
+        # Create separate documents for table summaries
+        for i, table_md in enumerate(slide_tables):
+            summary = _summarize_table(table_md, config)
+            if summary:
+                metadata = {
+                    "source_file": file_path,
+                    "file_name": file_name,
+                    "content_type": "table_summary",
+                    "format": "pptx",
+                    "slide_number": slide_idx,
+                    "table_index": i,
+                }
+                documents.append({
+                    "content": f"[Table {i + 1} summary, slide {slide_idx}]\n{summary}",
+                    "metadata": metadata,
+                })
+
         # Create separate documents for image descriptions
         for img_idx, img_desc in enumerate(slide_images):
             metadata = {
@@ -149,6 +165,8 @@ def _extract_table(table) -> str:
     Returns:
         Markdown-formatted table string.
     """
+    # Lazy import to avoid circular dependency
+    from src.ingestion.table_handler import table_to_markdown
     table_data = []
     for row in table.rows:
         row_data = []
@@ -160,6 +178,23 @@ def _extract_table(table) -> str:
         return ""
 
     return table_to_markdown(table_data)
+
+
+def _summarize_table(
+    markdown_table: str,
+    config: Optional[dict] = None,
+) -> Optional[str]:
+    """Generate a natural language summary of a table.
+
+    Args:
+        markdown_table: Markdown-formatted table string.
+        config: Optional config dict for LLM settings.
+
+    Returns:
+        Summary string, or None on failure.
+    """
+    from src.ingestion.table_handler import summarize_table
+    return summarize_table(markdown_table, config=config)
 
 
 def _extract_image(shape, config: Optional[dict] = None) -> Optional[str]:

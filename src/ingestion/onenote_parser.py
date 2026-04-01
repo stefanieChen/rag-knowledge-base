@@ -101,6 +101,22 @@ def parse_onenote(
         }
         documents.append({"content": table, "metadata": metadata})
 
+        # Generate natural language summary for semantic retrieval
+        summary = _summarize_table(table, config)
+        if summary:
+            summary_metadata = {
+                "source_file": file_path,
+                "file_name": file_name,
+                "content_type": "table_summary",
+                "format": "onenote_html",
+                "page_title": page_title,
+                "table_index": i,
+            }
+            documents.append({
+                "content": f"[Table {i + 1} summary]\n{summary}",
+                "metadata": summary_metadata,
+            })
+
     documents.extend(image_docs)
 
     elapsed_ms = int((time.perf_counter() - start) * 1000)
@@ -216,12 +232,17 @@ def _extract_sections(soup: BeautifulSoup) -> List[Dict]:
 def _extract_tables(soup: BeautifulSoup) -> List[str]:
     """Extract tables from OneNote HTML and convert to Markdown.
 
+    Extracts cell text into a 2D list, then delegates Markdown
+    formatting to the shared table_to_markdown utility.
+
     Args:
         soup: Parsed HTML.
 
     Returns:
         List of Markdown-formatted table strings.
     """
+    from src.ingestion.table_handler import table_to_markdown
+
     tables = []
 
     for table in soup.find_all("table"):
@@ -229,26 +250,37 @@ def _extract_tables(soup: BeautifulSoup) -> List[str]:
         if not rows:
             continue
 
-        md_rows = []
+        table_data = []
         for row in rows:
             cells = row.find_all(["td", "th"])
-            cell_texts = [
-                cell.get_text(strip=True).replace("|", "\\|")
-                for cell in cells
-            ]
-            md_rows.append("| " + " | ".join(cell_texts) + " |")
+            cell_texts = [cell.get_text(strip=True) for cell in cells]
+            table_data.append(cell_texts)
 
-        if len(md_rows) >= 1:
-            # Insert header separator after first row
-            num_cols = md_rows[0].count("|") - 1
-            separator = "| " + " | ".join(["---"] * max(num_cols, 1)) + " |"
-            md_rows.insert(1, separator)
+        if not table_data:
+            continue
 
-        md_table = "\n".join(md_rows)
+        md_table = table_to_markdown(table_data)
         if md_table.strip():
             tables.append(md_table)
 
     return tables
+
+
+def _summarize_table(
+    markdown_table: str,
+    config: Optional[dict] = None,
+) -> Optional[str]:
+    """Generate a natural language summary of a table.
+
+    Args:
+        markdown_table: Markdown-formatted table string.
+        config: Optional config dict for LLM settings.
+
+    Returns:
+        Summary string, or None on failure.
+    """
+    from src.ingestion.table_handler import summarize_table
+    return summarize_table(markdown_table, config=config)
 
 
 def _extract_images(

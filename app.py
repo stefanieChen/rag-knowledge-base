@@ -216,6 +216,13 @@ with st.sidebar:
                         chunks = ingest_file(
                             tmp_path, chunker, config=config
                         )
+
+                    # Preserve original filename in chunk metadata
+                    # (temp file gets a random name like tmp12345.pdf)
+                    for chunk in chunks:
+                        meta = chunk.get("metadata", {})
+                        meta["file_name"] = uf.name
+                        meta["source_file"] = uf.name
                     
                     if chunks:
                         with st.spinner(f"Adding {len(chunks)} chunks to vector store..."):
@@ -305,6 +312,9 @@ with st.sidebar:
                 code_progress.progress(80, text="Building repo map...")
                 with st.spinner("Building RepoMap (symbol graph + PageRank)..."):
                     st.session_state.pipeline.build_repo_map()
+                    # 记录构建时间
+                    from datetime import datetime
+                    st.session_state["repo_map_last_build"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 code_progress.progress(100, text="Complete! 🎉")
                 st.success(
@@ -330,22 +340,64 @@ with st.sidebar:
     repo_map_text = st.session_state.pipeline.repo_map_text
     rm = st.session_state.pipeline.repo_map
 
+    # Status display and statistics
     if rm:
+        # Get last build time from session state
+        last_build_time = st.session_state.get("repo_map_last_build", "Unknown")
+        
         st.markdown(
             f"**{rm.file_count}** files · "
             f"**{rm.definition_count}** defs · "
             f"**{rm.reference_count}** refs"
         )
+        st.caption(f"🕒 Last built: {last_build_time}")
+        
+        # Build status
+        st.success("✅ RepoMap built")
+        button_text = "🔄 Rebuild RepoMap"
+        help_text = "Rebuild RepoMap (to fix corruption or update symbol relationships)"
     else:
-        st.caption("Not built yet. Ingest code or click Rebuild.")
+        st.caption("⚠️ RepoMap not built")
+        button_text = "🔄 Build RepoMap"
+        help_text = "Initial RepoMap build (requires code ingestion first)"
 
-    if st.button("🔄 Rebuild RepoMap", use_container_width=True):
+    # Build button
+    if st.button(button_text, use_container_width=True, help=help_text):
         with st.spinner("Building RepoMap (tree-sitter + PageRank)..."):
             st.session_state.pipeline.build_repo_map()
+            # Record build time
+            from datetime import datetime
+            st.session_state["repo_map_last_build"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
 
+    # Help text
+    if rm:
+        st.markdown("""
+        <div style="font-size: 0.85em; color: #666; margin-top: 0.5rem;">
+            <strong>💡 About RepoMap:</strong>
+            <ul style="margin: 0.25rem 0; padding-left: 1.2rem;">
+                <li>Analyzes code structure, extracting classes, functions, and their relationships</li>
+                <li>Uses PageRank algorithm to rank symbol importance for better LLM understanding</li>
+                <li>Automatically built after code ingestion, usually no manual action needed</li>
+                <li>Click "Rebuild" to fix corruption or update symbol relationships</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="font-size: 0.85em; color: #666; margin-top: 0.5rem;">
+            <strong>💡 About RepoMap:</strong>
+            <ul style="margin: 0.25rem 0; padding-left: 1.2rem;">
+                <li>Analyzes code structure, extracting classes, functions, and their relationships</li>
+                <li>Uses PageRank algorithm to rank symbol importance for better LLM understanding</li>
+                <li>Please ingest code files first using the "💻 Ingest Code" section above</li>
+                <li>RepoMap is automatically built after code ingestion, usually no manual action needed</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
     if repo_map_text:
-        with st.expander("View Repo Map", expanded=False):
+        with st.expander("📋 View RepoMap Details", expanded=False):
             st.code(repo_map_text, language="markdown")
 
 
@@ -367,8 +419,9 @@ for msg in st.session_state.messages:
             ):
                 for i, src in enumerate(msg["sources"], 1):
                     score = src.get("score", 0)
+                    ctype = src.get("content_type", "unknown")
                     st.markdown(
-                        f"**[{i}]** `{src['file']}` — score: `{score:.4f}`"
+                        f"**[{i}]** `{src['file']}` [{ctype}] — score: `{score:.4f}`"
                     )
                     if src.get("content_preview"):
                         st.caption(src["content_preview"][:300])
@@ -418,8 +471,9 @@ if prompt := st.chat_input("Ask a question about your documents..."):
             ):
                 for i, src in enumerate(result["sources"], 1):
                     score = src.get("score", 0)
+                    ctype = src.get("content_type", "unknown")
                     st.markdown(
-                        f"**[{i}]** `{src['file']}` — score: `{score:.4f}`"
+                        f"**[{i}]** `{src['file']}` [{ctype}] — score: `{score:.4f}`"
                     )
                     if src.get("content_preview"):
                         st.caption(src["content_preview"][:300])

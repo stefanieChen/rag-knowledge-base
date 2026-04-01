@@ -77,7 +77,7 @@ def summarize_table(
     try:
         llm_cfg = (config or {}).get("llm", {})
         llm = ChatOllama(
-            model=llm_cfg.get("model", "qwen2.5:3b"),
+            model=llm_cfg.get("model", "qwen2.5:7b"),
             base_url=llm_cfg.get("base_url", "http://localhost:11434"),
             temperature=0.1,
             num_ctx=2048,

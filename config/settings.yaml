@@ -3,8 +3,7 @@
 
 # LLM Settings
 llm:
-  # model: "qwen2.5:7b"
-  model: "qwen2.5:3b"
+  model: "qwen2.5:7b"
   base_url: "http://localhost:11434"
   temperature: 0.1
   num_ctx: 4096
@@ -122,11 +121,11 @@ code_ingestion:
 # Monitoring & Observability
 monitoring:
   phoenix:
-    enabled: false  # Set to true after: pip install arize-phoenix opentelemetry-sdk opentelemetry-exporter-otlp openinference-instrumentation-langchain
+    enabled: true  # Set to true after: pip install arize-phoenix opentelemetry-sdk opentelemetry-exporter-otlp openinference-instrumentation-langchain
     endpoint: "http://localhost:6006/v1/traces"
     project_name: "rag-knowledge-base"
   mlflow:
-    enabled: false  # Set to true after: pip install mlflow
+    enabled: true  # Set to true after: pip install mlflow
     tracking_uri: "mlruns"
     experiment_name: "rag-knowledge-base"
 

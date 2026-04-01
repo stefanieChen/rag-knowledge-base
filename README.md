@@ -10,20 +10,21 @@
                          │                                             │
                          │  PDF ──→ pymupdf4llm (Markdown per page)    │
                          │  PPTX ──→ python-pptx (text + tables)       │
-                         │  MD ──→ section-based parser                 │
-                         │  TXT ──→ plain text reader                   │
-                         │  OneNote ──→ HTML export + BeautifulSoup     │
-                         │  Images ──→ llava multimodal LLM             │
-                         │  Tables ──→ Markdown + LLM summary           │
+                         │  MD ──→ section-based parser                │
+                         │  TXT ──→ plain text reader                  │
+                         │  OneNote ──→ HTML export + BeautifulSoup    │
+                         │  Images ──→ llava multimodal LLM            │
+                         │  Tables ──→ Markdown + LLM summary          │
+                         │  Code ──→ ASTChunk/LangChain + RepoMap      │
                          │                                             │
-                         │       ↓ RecursiveCharacterTextSplitter       │
+                         │       ↓ RecursiveCharacterTextSplitter      │
                          │       ↓ (512 chars, 64 overlap)             │
                          └───────────────┬─────────────────────────────┘
                                          │
                                          ▼
                          ┌───────────────────────────────────┐
-                         │     Embedding (bge-m3 via Ollama)  │
-                         │     → ChromaDB (cosine HNSW)       │
+                         │     Embedding (bge-m3 via Ollama) │
+                         │     → ChromaDB (cosine HNSW)      │
                          └───────────────┬───────────────────┘
                                          │
         ┌────────────────────────────────┼────────────────────────────────┐
@@ -31,16 +32,16 @@
         │                                                                 │
         │  User Question                                                  │
         │       │                                                         │
-        │       ├──→ (optional) HyDE / Multi-Query rewrite               │
+        │       ├──→ (optional) HyDE / Multi-Query rewrite                │
         │       │                                                         │
-        │       ├──→ Dense Retrieval (bge-m3 cosine) ──→ top-k           │
+        │       ├──→ Dense Retrieval (bge-m3 cosine) ──→ top-k            │
         │       │                                                         │
-        │       ├──→ Sparse Retrieval (BM25 keyword) ──→ top-k           │
+        │       ├──→ Sparse Retrieval (BM25 keyword) ──→ top-k            │
         │       │                                                         │
-        │       └──→ Reciprocal Rank Fusion (RRF) ──→ merged ranking     │
+        │       └──→ Reciprocal Rank Fusion (RRF) ──→ merged ranking      │
         │                        │                                        │
         │                        ▼                                        │
-        │            Cross-Encoder Rerank (bge-reranker-v2-m3)           │
+        │            Cross-Encoder Rerank (bge-reranker-v2-m3)            │
         │                        │                                        │
         │                        ▼                                        │
         │               Top-n context chunks                              │
@@ -49,20 +50,21 @@
         │     ChatPromptTemplate (system/human roles) + context           │
         │                        │                                        │
         │                        ▼                                        │
-        │           ChatOllama (qwen2.5) → LCEL chain → Answer           │
+        │           ChatOllama (qwen2.5) → LCEL chain → Answer            │
         │                                                                 │
         └──────────────────────┬──────────────────────────────────────────┘
                                │
                                ▼
                     ┌─────────────────────┐
-                    │   RAGTracer (JSON)   │
-                    │   Full query trace   │
+                    │   RAGTracer (JSON)  │
+                    │   Full query trace  │
                     └─────────────────────┘
 ```
 
 ## Features
 
 - **多格式文档支持**: PDF, PowerPoint, OneNote (HTML export), TXT, Markdown (含表格/图片处理)
+- **代码知识支持**: 源代码解析与AST分块 (Python/Java/C#/TypeScript等), RepoMap符号关系图, 代码专用Prompt模板
 - **Web UI**: Streamlit 交互界面，支持聊天式问答、文件上传、来源展示
 - **混合检索**: Dense (bge-m3) + Sparse (BM25) + RRF Fusion + Cross-Encoder Rerank
 - **查询改写**: HyDE (假设文档嵌入) + Multi-Query (多角度扩展)
@@ -80,9 +82,9 @@ venv\Scripts\activate        # Windows
 pip install -r requirements.txt
 
 # 2. Ensure Ollama is running with required models
-ollama pull qwen2.5:3b
+ollama pull qwen2.5:7b
 ollama pull bge-m3
-# ollama pull llava          # Optional: for image description
+ollama pull llava          # for image description
 
 # 3. Place documents in data/raw/
 
@@ -94,6 +96,9 @@ python -m src.main
 
 # 5b. Or launch Web UI
 streamlit run app.py
+
+# Optional: Start monitoring services (Phoenix + MLflow)
+python scripts/start_monitoring.py
 ```
 
 ## Usage
@@ -117,6 +122,50 @@ The sidebar provides:
 - **Prompt template selector**: Pick from versioned prompt templates (loaded from `config/prompts/*.yaml`)
 - **Source toggle**: Show/hide retrieved sources per answer
 - **Document upload**: Drag-and-drop files (PDF, PPTX, TXT, MD, HTM/HTML) to ingest directly into the knowledge base
+- **Code repository upload**: Ingest entire code repositories with AST-based chunking and RepoMap generation
+
+### Ingesting Source Code
+
+For code repositories, use the Web UI or direct function call:
+
+**Option 1: Web UI (Recommended)**
+```bash
+streamlit run app.py
+# In the sidebar, use "Code Repository" upload section
+```
+
+**Option 2: Direct Function Call**
+```python
+from src.ingest import run_code_ingestion
+
+# Ingest from local folder or Git URL
+file_count, chunk_count, added_count = run_code_ingestion(
+    path="/path/to/code/repo",  # Local folder or Git URL
+    repo_name="my-project",     # Optional auto-detection
+)
+```
+
+**Code-specific features:**
+- **AST-based chunking**: Uses ASTChunk for Python, Java, C#, TypeScript to preserve code structure
+- **LangChain fallback**: Language-aware splitting for other supported languages
+- **RepoMap generation**: Extracts symbols (classes, functions) and builds relationship graphs with PageRank ranking
+- **Incremental indexing**: Tracks file hashes to skip unchanged files
+- **Code metadata**: Includes file paths, language types, and AST node information
+
+### Code Knowledge Retrieval
+
+When code files are ingested, use the `code_v1` prompt template for best results:
+
+```yaml
+# In config/settings.yaml
+generation:
+  prompt_template: "code_v1"  # Code-aware prompt with file structure
+```
+
+The code template provides:
+- File path and hierarchy awareness
+- Precise code citation format [Source N: filepath]
+- Structure-aware context preservation
 
 ### Ingesting Documents
 
@@ -127,6 +176,8 @@ python -m src.ingest
 ```
 
 Supported formats: `.txt`, `.md`, `.pdf`, `.pptx`, `.htm`, `.html` (OneNote HTML exports).
+
+**Note**: Source code files are handled separately via the Web UI or `run_code_ingestion()` function.
 
 ### Prompt Version Management
 
@@ -256,16 +307,19 @@ rag_2/
 │   │   ├── markdown_parser.py   # Markdown section parser
 │   │   ├── txt_parser.py        # Plain text reader
 │   │   ├── onenote_parser.py    # OneNote HTML export parser
+│   │   ├── code_parser.py       # Source code parser with language detection
 │   │   ├── image_handler.py     # Image description (llava via Ollama)
 │   │   ├── table_handler.py     # Table → Markdown + LLM summary
-│   │   └── chunker.py           # RecursiveCharacterTextSplitter
+│   │   ├── chunker.py           # RecursiveCharacterTextSplitter
+│   │   └── code_chunker.py      # AST-based code chunking with LangChain fallback
 │   ├── embedding/
 │   │   └── embedder.py          # bge-m3 embedding via Ollama
 │   ├── retrieval/
 │   │   ├── vector_store.py      # ChromaDB operations
 │   │   ├── bm25_store.py        # BM25 sparse index (rank-bm25)
 │   │   ├── hybrid.py            # Hybrid retrieval + RRF fusion
-│   │   └── reranker.py          # Cross-Encoder reranker (bge-reranker-v2-m3)
+│   │   ├── reranker.py          # Cross-Encoder reranker (bge-reranker-v2-m3)
+│   │   └── repo_map.py          # Repository symbol mapping with PageRank
 │   ├── generation/
 │   │   ├── prompt_templates.py  # ChatPromptTemplate registry
 │   │   ├── query_rewriter.py    # HyDE + Multi-Query rewriting

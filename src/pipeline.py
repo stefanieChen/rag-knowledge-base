@@ -182,6 +182,7 @@ class RAGPipeline:
                 meta = chunk.get("metadata", {})
                 sources.append({
                     "file": meta.get("file_name", "unknown"),
+                    "content_type": meta.get("content_type", "unknown"),
                     "score": chunk.get("rerank_score",
                                        chunk.get("rrf_score",
                                                   chunk.get("score", 0))),

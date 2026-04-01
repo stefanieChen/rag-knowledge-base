@@ -62,7 +62,7 @@ def ingest_file(
     file_path: str,
     chunker: DocumentChunker,
     config: Optional[dict] = None,
-    extract_images: bool = False,
+    extract_images: bool = True,
 ) -> List[Dict]:
     """Parse and chunk a single file.
 
@@ -84,7 +84,7 @@ def ingest_file(
 
     try:
         # PDF, PPTX, and OneNote parsers accept extra kwargs
-        if ext in (".pdf", ".pptx", ".htm", ".html"):
+        if ext in (".pdf", ".pptx", ".htm", ".html", ".md"):
             documents = parser(
                 file_path,
                 extract_images=extract_images,
