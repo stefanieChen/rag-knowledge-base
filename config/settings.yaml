@@ -41,6 +41,9 @@ retrieval:
   rrf_k: 60
   hybrid_mode: true
   enable_reranker: true
+  context_compression:
+    enabled: false
+    max_chunks: 5
 
 # Reranker Settings
 reranker:
@@ -67,6 +70,18 @@ evaluation:
   frameworks:
     - "ragas"
     - "deepeval"
+
+# Generation Enhancements
+generation:
+  few_shot:
+    enabled: false
+    max_examples: 2
+    examples_file: "evaluation/test_set/sample_test_set.json"
+  dspy:
+    enabled: false
+    trainset_file: "evaluation/test_set/sample_test_set.json"
+    max_train_examples: 10
+    metric: "substring"
 
 # Code Ingestion Settings
 code_ingestion:

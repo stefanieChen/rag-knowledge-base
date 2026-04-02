@@ -82,9 +82,11 @@ class TestDeepEval:
 
     def test_ollama_llm(self):
         from evaluation.evaluate_deepeval import OllamaDeepEvalLLM
+        from src.config import load_config
 
         llm = OllamaDeepEvalLLM()
-        assert llm.get_model_name() == "qwen2.5:3b"
+        expected_model = load_config().get("llm", {}).get("model", "qwen2.5:3b")
+        assert llm.get_model_name() == expected_model
 
     def test_build_test_cases(self):
         from evaluation.evaluate_deepeval import build_test_cases

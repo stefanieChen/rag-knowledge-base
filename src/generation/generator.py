@@ -7,6 +7,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama import ChatOllama
 
 from src.config import load_config
+from src.generation.dspy_optimizer import DSpyPromptOptimizer
+from src.generation.few_shot_selector import FewShotSelector
 from src.generation.prompt_templates import format_context, get_template
 from src.logging.logger import get_logger
 
@@ -37,6 +39,8 @@ class Generator:
             num_ctx=self._num_ctx,
         )
         self._output_parser = StrOutputParser()
+        self._few_shot_selector = FewShotSelector(config=config)
+        self._dspy_optimizer = DSpyPromptOptimizer(config=config)
 
         logger.info(
             f"Generator initialized: model={self._model}, "
@@ -80,7 +84,6 @@ class Generator:
 
         # Get ChatPromptTemplate and compose LCEL chain
         prompt_template = get_template(template_name)
-        chain = prompt_template | self._llm | self._output_parser
 
         # Approximate token count (rough: 1 token ≈ 1.5 chars for mixed zh/en)
         context_token_count = len(context_str) * 2 // 3
@@ -90,11 +93,36 @@ class Generator:
             f"context_tokens≈{context_token_count}"
         )
 
-        # Invoke LCEL chain
-        answer = chain.invoke({
-            "context": context_str,
-            "question": query,
-        })
+        messages = prompt_template.format_messages(
+            context=context_str,
+            question=query,
+        )
+
+        few_shot_messages = self._few_shot_selector.select(query)
+        if few_shot_messages:
+            # Insert few-shot messages between context and final user question for coherence.
+            if len(messages) >= 2:
+                base_messages = [messages[0], messages[1]]
+                base_messages.extend(few_shot_messages)
+                base_messages.extend(messages[2:])
+                messages = base_messages
+            else:
+                messages = [messages[0]] + few_shot_messages + messages[1:]
+            logger.debug(
+                "Few-shot examples injected: %s messages", len(few_shot_messages)
+            )
+
+        llm_result = self._llm.invoke(messages)
+        answer = self._output_parser.invoke(llm_result)
+
+        refined_answer = self._dspy_optimizer.refine_answer(
+            question=query,
+            context=context_str,
+            baseline_answer=answer,
+        )
+        if refined_answer:
+            answer = refined_answer
+            logger.debug("Answer refined via DSPy optimizer")
 
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         logger.info(

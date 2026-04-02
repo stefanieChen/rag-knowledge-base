@@ -196,9 +196,3 @@ class HybridRetriever:
         )
 
         return results
-
-    def rebuild_bm25_index(self) -> None:
-        """Rebuild BM25 indexes from current vector store contents."""
-        self._bm25_doc.build_from_vector_store(self._doc_store)
-        if self._code_store and self._code_store.count > 0:
-            self._bm25_code.build_from_vector_store(self._code_store)

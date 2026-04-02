@@ -13,6 +13,7 @@ from src.generation.generator import Generator
 from src.logging.logger import get_logger
 from src.logging.rag_tracer import RAGTracer
 from src.monitoring.phoenix_tracer import init_phoenix_tracing
+from src.retrieval.context_compressor import ContextCompressor
 from src.retrieval.repo_map import RepoMap
 from src.retrieval.vector_store import VectorStore
 
@@ -44,6 +45,7 @@ class RAGPipeline:
             embedder=self._doc_store._embedder,  # Share embedder instance
         )
         self._generator = Generator(config=config)
+        self._context_compressor = ContextCompressor(config=config)
 
         ret_cfg = config.get("retrieval", {})
         self._top_n = ret_cfg.get("top_n", 5)
@@ -114,16 +116,20 @@ class RAGPipeline:
 
             if self._hybrid_retriever:
                 # Hybrid: dense + BM25 → RRF → rerank
-                context_chunks = self._hybrid_retriever.search(
+                retrieved_chunks = self._hybrid_retriever.search(
                     query=question,
                     top_n=top_n,
                     search_scope=search_scope,
                 )
             else:
                 # Dense-only fallback with scope filtering
-                context_chunks = self._dense_search(
+                retrieved_chunks = self._dense_search(
                     question, top_n, search_scope
                 )
+
+            context_chunks = self._context_compressor.compress(question, retrieved_chunks)
+            if len(context_chunks) > top_n:
+                context_chunks = context_chunks[:top_n]
 
             retrieval_ms = int(
                 (time.perf_counter() - retrieval_start) * 1000
@@ -136,7 +142,7 @@ class RAGPipeline:
                         "score": r.get("rerank_score", r.get("rrf_score", r.get("score", 0))),
                         "source": r.get("metadata", {}).get("file_name", ""),
                     }
-                    for r in context_chunks
+                    for r in retrieved_chunks
                 ],
                 retrieval_latency_ms=retrieval_ms,
             )

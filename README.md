@@ -135,14 +135,12 @@ streamlit run app.py
 ```
 
 **Option 2: Direct Function Call**
-```python
-from src.ingest import run_code_ingestion
-
-# Ingest from local folder or Git URL
-file_count, chunk_count, added_count = run_code_ingestion(
-    path="/path/to/code/repo",  # Local folder or Git URL
-    repo_name="my-project",     # Optional auto-detection
-)
+```bash
+python -m src.code_ingest
+python src/ingest_code.py /path/to/code/repo
+python src/ingest_code.py /path/to/code/repo "my-repo-name"
+python src/ingest_code.py https://github.com/user/repo
+python src/ingest_code.py https://github.com/user/repo "custom-name"
 ```
 
 **Code-specific features:**
@@ -177,7 +175,7 @@ python -m src.ingest
 
 Supported formats: `.txt`, `.md`, `.pdf`, `.pptx`, `.htm`, `.html` (OneNote HTML exports).
 
-**Note**: Source code files are handled separately via the Web UI or `run_code_ingestion()` function.
+**Note**: Source code files are handled separately via the Web UI or `src\ingest_code.py` script.
 
 ### Prompt Version Management
 
@@ -363,7 +361,7 @@ Visualize full RAG pipeline traces (retrieval → rerank → generation) in a lo
 pip install arize-phoenix opentelemetry-sdk opentelemetry-exporter-otlp openinference-instrumentation-langchain
 
 # Enable in config/settings.yaml
-# monitoring.phoenix.enabled: true
+monitoring.phoenix.enabled: true
 
 # Start Phoenix UI
 python scripts/start_monitoring.py --phoenix
