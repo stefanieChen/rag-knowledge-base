@@ -10,10 +10,13 @@ from typing import Dict, List, Optional
 
 from src.config import load_config
 from src.generation.generator import Generator
+from src.generation.language_detector import detect_language
+from src.generation.query_rewriter import HyDERewriter, MultiQueryRewriter
 from src.logging.logger import get_logger
 from src.logging.rag_tracer import RAGTracer
 from src.monitoring.phoenix_tracer import init_phoenix_tracing
 from src.retrieval.context_compressor import ContextCompressor
+from src.retrieval.query_cache import QueryCache
 from src.retrieval.repo_map import RepoMap
 from src.retrieval.vector_store import VectorStore
 
@@ -73,6 +76,27 @@ class RAGPipeline:
         if not self._hybrid_mode:
             logger.info("Pipeline using DENSE-ONLY retrieval")
 
+        # Initialize query rewriter if enabled
+        self._query_rewriter = None
+        self._query_rewrite_strategy = "none"
+        qr_cfg = config.get("query_rewriting", {})
+        if qr_cfg.get("enabled", False):
+            strategy = qr_cfg.get("strategy", "none")
+            try:
+                if strategy == "hyde":
+                    self._query_rewriter = HyDERewriter(config=config)
+                    self._query_rewrite_strategy = "hyde"
+                    logger.info("Query rewriting enabled: HyDE")
+                elif strategy == "multi_query":
+                    self._query_rewriter = MultiQueryRewriter(config=config)
+                    self._query_rewrite_strategy = "multi_query"
+                    logger.info("Query rewriting enabled: MultiQuery")
+            except Exception as e:
+                logger.warning(f"Query rewriter init failed, continuing without: {e}")
+
+        # Initialize query cache
+        self._query_cache = QueryCache(config=config)
+
         # Initialize Phoenix tracing if enabled
         init_phoenix_tracing(config)
 
@@ -107,24 +131,58 @@ class RAGPipeline:
         if top_n is None:
             top_n = self._top_n
 
-        with RAGTracer(self._config) as tracer:
-            # 1. Log query
-            tracer.log_query(raw_query=question)
+        # Check cache before running full pipeline
+        cache_key_params = f"{question}|{top_n}|{template_name}|{search_scope}"
+        cached = self._query_cache.get(cache_key_params)
+        if cached is not None:
+            logger.info(f"Returning cached result for: '{question[:50]}...'")
+            return cached
 
-            # 2. Retrieve
+        with RAGTracer(self._config) as tracer:
+            # 1. Query rewriting
+            rewritten_query = None
+            search_queries = [question]
+
+            if self._query_rewriter:
+                try:
+                    if self._query_rewrite_strategy == "hyde":
+                        rewritten_query = self._query_rewriter.rewrite(question)
+                        search_queries = [rewritten_query]
+                    elif self._query_rewrite_strategy == "multi_query":
+                        search_queries = self._query_rewriter.rewrite(question)
+                        rewritten_query = " | ".join(search_queries)
+                except Exception as e:
+                    logger.warning(f"Query rewrite failed, using original: {e}")
+                    search_queries = [question]
+
+            # Detect query language
+            query_language = detect_language(question)
+
+            tracer.log_query(
+                raw_query=question,
+                rewritten_query=rewritten_query,
+                language=query_language,
+            )
+
+            # 2. Retrieve (multi-query: run each query, deduplicate by chunk_id)
             retrieval_start = time.perf_counter()
 
-            if self._hybrid_retriever:
+            if len(search_queries) > 1:
+                # Multi-query: merge results from all queries
+                retrieved_chunks = self._multi_query_search(
+                    search_queries, top_n, search_scope
+                )
+            elif self._hybrid_retriever:
                 # Hybrid: dense + BM25 → RRF → rerank
                 retrieved_chunks = self._hybrid_retriever.search(
-                    query=question,
+                    query=search_queries[0],
                     top_n=top_n,
                     search_scope=search_scope,
                 )
             else:
                 # Dense-only fallback with scope filtering
                 retrieved_chunks = self._dense_search(
-                    question, top_n, search_scope
+                    search_queries[0], top_n, search_scope
                 )
 
             context_chunks = self._context_compressor.compress(question, retrieved_chunks)
@@ -162,10 +220,16 @@ class RAGPipeline:
                     generation_latency_ms=0,
                 )
             else:
-                # Inject repo map for code-related searches
+                # Inject repo map + dynamic dependency context for code searches
                 rmap = None
                 if search_scope in ("all", "code") and self._repo_map_text:
                     rmap = self._repo_map_text
+
+                    # Dynamic context pulling from dependency graph
+                    if self._repo_map:
+                        dep_context = self._get_dependency_context(context_chunks)
+                        if dep_context:
+                            rmap = f"{rmap}\n\n{dep_context}"
 
                 gen_result = self._generator.generate(
                     query=question,
@@ -195,13 +259,120 @@ class RAGPipeline:
                     "content_preview": chunk.get("content", "")[:200],
                 })
 
-            return {
+            result = {
                 "answer": answer_text,
                 "sources": sources,
                 "trace_id": tracer.trace_id,
                 "latency_ms": tracer.data.get("latency_total_ms", 0),
                 "retrieval_mode": "hybrid" if self._hybrid_retriever else "dense",
             }
+
+            # Store in cache
+            self._query_cache.put(cache_key_params, result)
+
+            return result
+
+    def _multi_query_search(
+        self,
+        queries: List[str],
+        top_n: int,
+        search_scope: str = "all",
+    ) -> List[Dict]:
+        """Run multiple queries and merge results using RRF.
+
+        Each query is run through either the hybrid or dense retriever,
+        and results are fused via Reciprocal Rank Fusion for deduplication.
+
+        Args:
+            queries: List of query strings (original + rewrites).
+            top_n: Number of final results to return.
+            search_scope: "all", "docs", or "code".
+
+        Returns:
+            Merged and deduplicated list of result dicts.
+        """
+        from src.retrieval.hybrid import reciprocal_rank_fusion
+
+        all_result_lists = []
+        for q in queries:
+            if self._hybrid_retriever:
+                results = self._hybrid_retriever.search(
+                    query=q, top_n=top_n, search_scope=search_scope,
+                )
+            else:
+                results = self._dense_search(q, top_n, search_scope)
+            if results:
+                all_result_lists.append(results)
+
+        if not all_result_lists:
+            return []
+
+        if len(all_result_lists) == 1:
+            return all_result_lists[0]
+
+        rrf_k = self._config.get("retrieval", {}).get("rrf_k", 60)
+        fused = reciprocal_rank_fusion(all_result_lists, k=rrf_k)
+
+        logger.info(
+            f"Multi-query fusion: {len(queries)} queries → "
+            f"{len(fused)} unique chunks (returning top {top_n})"
+        )
+        return fused[:top_n]
+
+    def _get_dependency_context(self, context_chunks: List[Dict]) -> str:
+        """Extract identifiers from code chunks and pull related definitions.
+
+        Scans retrieved code chunks for identifier-like tokens, then uses
+        the RepoMap dependency graph to find and return source code of
+        referenced definitions.
+
+        Args:
+            context_chunks: Retrieved code chunks with 'content' and 'metadata'.
+
+        Returns:
+            Formatted string of related source code, or "" if none found.
+        """
+        if not self._repo_map:
+            return ""
+
+        import re
+
+        # Only process code-type chunks
+        identifiers = set()
+        for chunk in context_chunks:
+            meta = chunk.get("metadata", {})
+            if meta.get("content_type") not in ("code", "function", "class", "method"):
+                continue
+
+            content = chunk.get("content", "")
+            # Extract potential identifiers: words with 2+ chars that look like
+            # function/class names (starts with letter or underscore)
+            tokens = re.findall(r'\b[A-Za-z_][A-Za-z0-9_]{1,}\b', content)
+            identifiers.update(tokens)
+
+        if not identifiers:
+            return ""
+
+        # Filter out common language keywords to reduce noise
+        _COMMON_KEYWORDS = {
+            "def", "class", "return", "import", "from", "self", "None",
+            "True", "False", "if", "else", "elif", "for", "while", "try",
+            "except", "finally", "with", "as", "in", "not", "and", "or",
+            "is", "lambda", "yield", "raise", "pass", "break", "continue",
+            "global", "nonlocal", "assert", "del", "print", "range", "len",
+            "str", "int", "float", "bool", "list", "dict", "set", "tuple",
+            "type", "super", "isinstance", "hasattr", "getattr", "setattr",
+            "public", "private", "protected", "static", "void", "string",
+            "var", "let", "const", "function", "new", "this", "null",
+            "undefined", "async", "await", "export", "default",
+        }
+        identifiers -= _COMMON_KEYWORDS
+
+        return self._repo_map.get_related_context(
+            symbol_names=list(identifiers),
+            max_symbols=8,
+            max_chars=2000,
+        )
 
     def _dense_search(
         self,
@@ -251,6 +422,21 @@ class RAGPipeline:
         if self._hybrid_retriever:
             self._hybrid_retriever.rebuild_bm25_index()
             logger.info("BM25 index rebuilt after ingestion")
+        # Invalidate cache since knowledge base changed
+        self._query_cache.invalidate()
+
+    def invalidate_cache(self) -> int:
+        """Invalidate the query cache. Call after ingesting new documents.
+
+        Returns:
+            Number of cache entries cleared.
+        """
+        return self._query_cache.invalidate()
+
+    @property
+    def cache_stats(self) -> Dict:
+        """Return query cache statistics."""
+        return self._query_cache.stats
 
     def build_repo_map(
         self,

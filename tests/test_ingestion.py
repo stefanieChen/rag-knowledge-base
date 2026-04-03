@@ -231,6 +231,6 @@ class TestIngestRegistry:
     def test_all_parsers_registered(self):
         from src.ingest import PARSERS
 
-        expected = {".txt", ".md", ".pdf", ".pptx", ".htm", ".html"}
+        expected = {".txt", ".md", ".pdf", ".pptx", ".htm", ".html", ".ipynb"}
         actual = set(PARSERS.keys())
         assert actual == expected, f"Expected {expected}, got {actual}"

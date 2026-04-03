@@ -71,6 +71,18 @@ evaluation:
     - "ragas"
     - "deepeval"
 
+# Query Rewriting Settings
+query_rewriting:
+  enabled: true
+  strategy: "multi_query"  # "hyde", "multi_query", or "none"
+  hyde:
+    temperature: 0.3
+    num_ctx: 2048
+  multi_query:
+    temperature: 0.5
+    num_ctx: 2048
+    num_queries: 3  # Number of alternative queries to generate
+
 # Generation Enhancements
 generation:
   few_shot:
@@ -143,6 +155,13 @@ monitoring:
     enabled: true  # Set to true after: pip install mlflow
     tracking_uri: "mlruns"
     experiment_name: "rag-knowledge-base"
+
+# Query Cache Settings
+cache:
+  enabled: true
+  max_size: 100  # Maximum number of cached query results
+  ttl_seconds: 3600  # Cache entry time-to-live (1 hour)
+  similarity_threshold: 0.95  # Cosine similarity threshold for cache hits
 
 # Data Directories
 data:

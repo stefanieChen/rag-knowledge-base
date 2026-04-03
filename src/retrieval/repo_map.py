@@ -571,6 +571,115 @@ class RepoMap:
         """Total number of references across all files."""
         return sum(len(fs.references) for fs in self._file_symbols.values())
 
+    def get_related_context(
+        self,
+        symbol_names: List[str],
+        max_symbols: int = 10,
+        max_chars: int = 3000,
+    ) -> str:
+        """Pull source code of definitions referenced by the given symbols.
+
+        Given symbol names found in retrieved code chunks, traverses the
+        dependency graph to find related definitions and reads their source
+        code from disk. Prioritises symbols by PageRank importance.
+
+        Args:
+            symbol_names: List of identifier names found in retrieved chunks.
+            max_symbols: Maximum number of related definitions to include.
+            max_chars: Approximate character budget for the output.
+
+        Returns:
+            Formatted string of related source code snippets, or "" if none found.
+        """
+        if not self._graph or not self._all_defs:
+            return ""
+
+        if not self._pagerank:
+            self.compute_pagerank()
+
+        # Collect all definitions that the given symbols reference
+        related_defs: Dict[str, Tuple[SymbolDef, float]] = {}
+
+        for name in symbol_names:
+            if name not in self._all_defs:
+                continue
+            for sym_def in self._all_defs[name]:
+                fs = self._file_symbols.get(sym_def.file_path)
+                if fs is None:
+                    continue
+                node_id = f"{fs.relative_path}::{sym_def.qualified_name}"
+                pr_score = self._pagerank.get(node_id, 0.0)
+                if node_id not in related_defs or pr_score > related_defs[node_id][1]:
+                    related_defs[node_id] = (sym_def, pr_score)
+
+            # Also follow outgoing edges from definition nodes to find
+            # symbols that the given symbol depends on
+            for target_def in self._all_defs.get(name, []):
+                target_fs = self._file_symbols.get(target_def.file_path)
+                if target_fs is None:
+                    continue
+                target_node = f"{target_fs.relative_path}::{target_def.qualified_name}"
+                if self._graph.has_node(target_node):
+                    for successor in self._graph.successors(target_node):
+                        succ_data = self._graph.nodes.get(successor, {})
+                        if succ_data.get("kind") in ("class", "function", "method"):
+                            succ_name = succ_data.get("name", "")
+                            if succ_name in self._all_defs:
+                                for sd in self._all_defs[succ_name]:
+                                    sfs = self._file_symbols.get(sd.file_path)
+                                    if sfs is None:
+                                        continue
+                                    sid = f"{sfs.relative_path}::{sd.qualified_name}"
+                                    pr = self._pagerank.get(sid, 0.0)
+                                    if sid not in related_defs or pr > related_defs[sid][1]:
+                                        related_defs[sid] = (sd, pr)
+
+        if not related_defs:
+            return ""
+
+        # Sort by PageRank descending, take top N
+        sorted_defs = sorted(
+            related_defs.values(), key=lambda x: x[1], reverse=True
+        )[:max_symbols]
+
+        # Read source code snippets from disk
+        lines_out = ["# Related Definitions (auto-expanded from dependency graph)", ""]
+        char_count = 60
+
+        for sym_def, pr_score in sorted_defs:
+            try:
+                with open(sym_def.file_path, "r", encoding="utf-8") as f:
+                    file_lines = f.readlines()
+            except Exception:
+                continue
+
+            start_idx = max(0, sym_def.line - 1)
+            end_idx = min(len(file_lines), sym_def.end_line)
+            snippet = "".join(file_lines[start_idx:end_idx]).rstrip()
+
+            fs = self._file_symbols.get(sym_def.file_path)
+            rel_path = fs.relative_path if fs else sym_def.file_path
+
+            header = (
+                f"## {rel_path} :: {sym_def.qualified_name} "
+                f"(L{sym_def.line}-{sym_def.end_line}, rank={pr_score:.4f})"
+            )
+            block = f"{header}\n```\n{snippet}\n```\n"
+
+            if char_count + len(block) > max_chars:
+                lines_out.append("... (truncated)")
+                break
+
+            lines_out.append(block)
+            char_count += len(block)
+
+        result = "\n".join(lines_out)
+        logger.info(
+            f"Related context: {len(symbol_names)} symbols → "
+            f"{len(sorted_defs)} definitions ({len(result)} chars)"
+        )
+        return result
+
     def get_file_tree(self) -> str:
         """Generate a simple file tree with definition counts.
 

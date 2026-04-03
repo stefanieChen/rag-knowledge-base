@@ -6,10 +6,14 @@ langchainhub>=0.1
 chromadb>=1.0
 pyyaml>=6.0
 
-# --- Phase 2: Document parsing (PDF, PPT, images) ---
+# --- Phase 2: Document parsing (PDF, PPT, images, OCR) ---
 pymupdf4llm>=1.0
 python-pptx>=1.0
 Pillow>=10.0
+pytesseract>=0.3.10  # Requires Tesseract binary installed on system
+
+# --- Phase 2b: Language detection ---
+langdetect>=1.0.9
 
 # --- Phase 3: Hybrid retrieval + rerank + query rewrite ---
 rank-bm25>=0.2.2

@@ -1,10 +1,11 @@
-"""Image description generator for embedded images.
+"""Image description generator and OCR text extractor for embedded images.
 
 Uses multimodal LLM (llava via Ollama) to generate text descriptions
-of images for indexing into the knowledge base.
+of images, and Tesseract OCR to extract text content from text-heavy images.
 """
 
 import base64
+import io
 import os
 import time
 from typing import Optional
@@ -16,6 +17,17 @@ from langchain_core.output_parsers import StrOutputParser
 from src.logging.logger import get_logger
 
 logger = get_logger("ingestion.image_handler")
+
+# Track OCR availability at import time
+_TESSERACT_AVAILABLE = False
+try:
+    import pytesseract
+    from PIL import Image
+    # Quick check that tesseract binary is accessible
+    pytesseract.get_tesseract_version()
+    _TESSERACT_AVAILABLE = True
+except Exception:
+    logger.info("Tesseract OCR not available — install pytesseract and Tesseract binary for OCR support")
 
 # Default multimodal model for image description
 DEFAULT_VISION_MODEL = "llava"
@@ -183,3 +195,172 @@ def describe_image_bytes(
     except Exception as e:
         logger.warning(f"Image bytes description failed: {e}")
         return None
+
+
+# ── OCR functions ─────────────────────────────────────────────
+
+
+def ocr_image(
+    image_path: str,
+    lang: str = "eng+chi_sim",
+) -> Optional[str]:
+    """Extract text from an image using Tesseract OCR.
+
+    Args:
+        image_path: Absolute path to the image file.
+        lang: Tesseract language string (e.g., 'eng', 'chi_sim', 'eng+chi_sim').
+
+    Returns:
+        Extracted text string, or None if OCR is unavailable or fails.
+    """
+    if not _TESSERACT_AVAILABLE:
+        logger.debug("OCR skipped: Tesseract not available")
+        return None
+
+    if not os.path.exists(image_path):
+        logger.warning(f"Image not found for OCR: {image_path}")
+        return None
+
+    start = time.perf_counter()
+    try:
+        img = Image.open(image_path)
+        text = pytesseract.image_to_string(img, lang=lang)
+        text = text.strip()
+
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        if text:
+            logger.info(
+                f"OCR extracted: {os.path.basename(image_path)} "
+                f"({len(text)} chars, {elapsed_ms}ms)"
+            )
+        else:
+            logger.debug(f"OCR returned empty for {os.path.basename(image_path)} ({elapsed_ms}ms)")
+
+        return text if text else None
+
+    except Exception as e:
+        logger.warning(f"OCR failed for {image_path}: {e}")
+        return None
+
+
+def ocr_image_bytes(
+    image_bytes: bytes,
+    lang: str = "eng+chi_sim",
+) -> Optional[str]:
+    """Extract text from raw image bytes using Tesseract OCR.
+
+    Args:
+        image_bytes: Raw image bytes.
+        lang: Tesseract language string.
+
+    Returns:
+        Extracted text string, or None if OCR is unavailable or fails.
+    """
+    if not _TESSERACT_AVAILABLE:
+        logger.debug("OCR skipped: Tesseract not available")
+        return None
+
+    start = time.perf_counter()
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        text = pytesseract.image_to_string(img, lang=lang)
+        text = text.strip()
+
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        if text:
+            logger.info(f"OCR bytes extracted ({len(text)} chars, {elapsed_ms}ms)")
+
+        return text if text else None
+
+    except Exception as e:
+        logger.warning(f"OCR bytes extraction failed: {e}")
+        return None
+
+
+def extract_image_text(
+    image_path: str,
+    config: Optional[dict] = None,
+    enable_ocr: bool = True,
+    enable_llm: bool = True,
+    ocr_lang: str = "eng+chi_sim",
+) -> Optional[str]:
+    """Extract text from an image using OCR and/or multimodal LLM description.
+
+    Combines both approaches for comprehensive text extraction:
+    - OCR extracts literal text content (best for text-heavy images)
+    - LLM describes visual elements, charts, diagrams
+
+    Args:
+        image_path: Absolute path to the image file.
+        config: Optional config dict for LLM settings.
+        enable_ocr: Whether to run Tesseract OCR.
+        enable_llm: Whether to run multimodal LLM description.
+        ocr_lang: Tesseract language string.
+
+    Returns:
+        Combined text string, or None if all extraction fails.
+    """
+    parts = []
+
+    if enable_ocr:
+        ocr_text = ocr_image(image_path, lang=ocr_lang)
+        if ocr_text:
+            parts.append(f"[OCR Text]\n{ocr_text}")
+
+    if enable_llm:
+        llm_desc = describe_image(image_path, config=config)
+        if llm_desc:
+            parts.append(f"[Image Description]\n{llm_desc}")
+
+    if not parts:
+        return None
+
+    return "\n\n".join(parts)
+
+
+def extract_image_bytes_text(
+    image_bytes: bytes,
+    mime_type: str = "image/png",
+    config: Optional[dict] = None,
+    enable_ocr: bool = True,
+    enable_llm: bool = True,
+    ocr_lang: str = "eng+chi_sim",
+) -> Optional[str]:
+    """Extract text from raw image bytes using OCR and/or multimodal LLM.
+
+    Args:
+        image_bytes: Raw image bytes.
+        mime_type: MIME type of the image.
+        config: Optional config dict for LLM settings.
+        enable_ocr: Whether to run Tesseract OCR.
+        enable_llm: Whether to run multimodal LLM description.
+        ocr_lang: Tesseract language string.
+
+    Returns:
+        Combined text string, or None if all extraction fails.
+    """
+    parts = []
+
+    if enable_ocr:
+        ocr_text = ocr_image_bytes(image_bytes, lang=ocr_lang)
+        if ocr_text:
+            parts.append(f"[OCR Text]\n{ocr_text}")
+
+    if enable_llm:
+        llm_desc = describe_image_bytes(image_bytes, mime_type=mime_type, config=config)
+        if llm_desc:
+            parts.append(f"[Image Description]\n{llm_desc}")
+
+    if not parts:
+        return None
+
+    return "\n\n".join(parts)
+
+
+def is_ocr_available() -> bool:
+    """Check whether Tesseract OCR is available on this system.
+
+    Returns:
+        True if pytesseract and Tesseract binary are installed and accessible.
+    """
+    return _TESSERACT_AVAILABLE

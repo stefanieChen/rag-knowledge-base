@@ -13,6 +13,7 @@ from src.ingestion.code_parser import parse_code
 from src.ingestion.markdown_parser import parse_markdown
 from src.ingestion.pdf_parser import parse_pdf
 from src.ingestion.pptx_parser import parse_pptx
+from src.ingestion.notebook_parser import parse_notebook
 from src.ingestion.onenote_parser import parse_onenote
 from src.ingestion.repo_loader import load_repo
 from src.ingestion.txt_parser import parse_txt
@@ -31,6 +32,7 @@ PARSERS = {
     ".pptx": parse_pptx,
     ".htm": parse_onenote,
     ".html": parse_onenote,
+    ".ipynb": parse_notebook,
 }
 
 
@@ -84,7 +86,7 @@ def ingest_file(
 
     try:
         # PDF, PPTX, and OneNote parsers accept extra kwargs
-        if ext in (".pdf", ".pptx", ".htm", ".html", ".md"):
+        if ext in (".pdf", ".pptx", ".htm", ".html", ".md", ".ipynb"):
             documents = parser(
                 file_path,
                 extract_images=extract_images,
