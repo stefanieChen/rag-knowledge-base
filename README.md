@@ -13,9 +13,10 @@
                          │  MD ──→ section-based parser                │
                          │  TXT ──→ plain text reader                  │
                          │  OneNote ──→ HTML export + BeautifulSoup    │
-                         │  Images ──→ llava multimodal LLM            │
+                         │  Images ──→ llava multimodal LLM + OCR      │
                          │  Tables ──→ Markdown + LLM summary          │
                          │  Code ──→ ASTChunk/LangChain + RepoMap      │
+                         │  Notebook ──→ ipynb cell extractor          │
                          │                                             │
                          │       ↓ RecursiveCharacterTextSplitter      │
                          │       ↓ (512 chars, 64 overlap)             │
@@ -32,6 +33,8 @@
         │                                                                 │
         │  User Question                                                  │
         │       │                                                         │
+        │       ├──→ Language Detection (langdetect)                     │
+        │       ├──→ Cache Lookup (embedding similarity)                   │
         │       ├──→ (optional) HyDE / Multi-Query rewrite                │
         │       │                                                         │
         │       ├──→ Dense Retrieval (bge-m3 cosine) ──→ top-k            │
@@ -51,6 +54,9 @@
         │                        │                                        │
         │                        ▼                                        │
         │           ChatOllama (qwen2.5) → LCEL chain → Answer            │
+        │                        │                                        │
+        │                        ▼                                        │
+        │              Cache Store (LRU + TTL)                             │
         │                                                                 │
         └──────────────────────┬──────────────────────────────────────────┘
                                │
@@ -63,12 +69,14 @@
 
 ## Features
 
-- **多格式文档支持**: PDF, PowerPoint, OneNote (HTML export), TXT, Markdown (含表格/图片处理)
-- **代码知识支持**: 源代码解析与AST分块 (Python/Java/C#/TypeScript等), RepoMap符号关系图, 代码专用Prompt模板
+- **多格式文档支持**: PDF, PowerPoint, OneNote (HTML export), TXT, Markdown, Jupyter Notebook (.ipynb) (含表格/图片/OCR处理)
+- **代码知识支持**: 源代码解析与AST分块 (Python/Java/C#/TypeScript等), RepoMap符号关系图+依赖图动态上下文拉取, 代码专用Prompt模板
 - **Web UI**: Streamlit 交互界面，支持聊天式问答、文件上传、来源展示
 - **混合检索**: Dense (bge-m3) + Sparse (BM25) + RRF Fusion + Cross-Encoder Rerank
-- **查询改写**: HyDE (假设文档嵌入) + Multi-Query (多角度扩展)
+- **查询增强**: HyDE/Multi-Query 查询改写 (pipeline集成) + 语言自动检测 + 查询缓存 (LRU+TTL+embedding相似度)
+- **图片处理**: 多模态 LLM (llava) 语义描述 + Tesseract OCR 文字提取，可组合使用
 - **结构化 Prompt**: ChatPromptTemplate + LCEL chain，支持模板注册与版本管理
+- **评测体系**: Ragas + DeepEval 双框架 + 自动测试集生成 (Ragas TestsetGenerator)
 - **全链路日志追踪**: 每次查询生成结构化 JSON trace，便于效果回溯
 - **本地部署**: Ollama LLM + ChromaDB，无需外部 API
 
@@ -173,7 +181,7 @@ Place files in `data/raw/` and run:
 python -m src.ingest
 ```
 
-Supported formats: `.txt`, `.md`, `.pdf`, `.pptx`, `.htm`, `.html` (OneNote HTML exports).
+Supported formats: `.txt`, `.md`, `.pdf`, `.pptx`, `.htm`, `.html` (OneNote HTML exports), `.ipynb` (Jupyter Notebooks).
 
 **Note**: Source code files are handled separately via the Web UI or `src\ingest_code.py` script.
 
@@ -275,7 +283,8 @@ tests/
 ├── test_retrieval.py      # BM25, RRF fusion, reranker import, hybrid config
 ├── test_generation.py     # Prompt templates, prompt versioning, query rewriters
 ├── test_evaluation.py     # Ragas + DeepEval metric creation, test set loading
-└── test_pipeline.py       # RAG tracer, pipeline config
+├── test_pipeline.py       # RAG tracer, pipeline config
+└── test_new_features.py   # Notebook parser, query cache, language detector, OCR, pipeline integration
 ```
 
 ### After Code Changes
@@ -306,8 +315,9 @@ rag_2/
 │   │   ├── txt_parser.py        # Plain text reader
 │   │   ├── onenote_parser.py    # OneNote HTML export parser
 │   │   ├── code_parser.py       # Source code parser with language detection
-│   │   ├── image_handler.py     # Image description (llava via Ollama)
+│   │   ├── image_handler.py     # Image description (llava) + OCR (Tesseract)
 │   │   ├── table_handler.py     # Table → Markdown + LLM summary
+│   │   ├── notebook_parser.py   # Jupyter Notebook (.ipynb) parser
 │   │   ├── chunker.py           # RecursiveCharacterTextSplitter
 │   │   └── code_chunker.py      # AST-based code chunking with LangChain fallback
 │   ├── embedding/
@@ -317,10 +327,12 @@ rag_2/
 │   │   ├── bm25_store.py        # BM25 sparse index (rank-bm25)
 │   │   ├── hybrid.py            # Hybrid retrieval + RRF fusion
 │   │   ├── reranker.py          # Cross-Encoder reranker (bge-reranker-v2-m3)
-│   │   └── repo_map.py          # Repository symbol mapping with PageRank
+│   │   ├── repo_map.py          # Repository symbol mapping with PageRank + dependency context
+│   │   └── query_cache.py       # LRU query cache with embedding similarity
 │   ├── generation/
 │   │   ├── prompt_templates.py  # ChatPromptTemplate registry
 │   │   ├── query_rewriter.py    # HyDE + Multi-Query rewriting
+│   │   ├── language_detector.py # Auto language detection (langdetect)
 │   │   └── generator.py         # ChatOllama + LCEL chain
 │   ├── ingest.py                # Document ingestion script
 │   ├── pipeline.py              # End-to-end RAG pipeline
@@ -329,6 +341,7 @@ rag_2/
 │   ├── evaluate_ragas.py        # Ragas metrics evaluation
 │   ├── evaluate_deepeval.py     # DeepEval metrics evaluation
 │   ├── run_evaluation.py        # Unified evaluation runner
+│   ├── generate_test_set.py     # Auto test set generation (Ragas TestsetGenerator)
 │   └── test_set/                # Test datasets (JSON)
 ├── app.py                       # Streamlit Web UI
 ├── logs/rag_traces/             # RAG trace JSON files
@@ -344,6 +357,8 @@ Edit `config/settings.yaml` to adjust:
 - **Embedding**: model, batch size
 - **Chunking**: chunk size, overlap, separators
 - **Retrieval**: top_k, top_n, similarity threshold, hybrid mode, RRF constant
+- **Query Rewriting**: enable/disable, strategy (hyde/multi_query/none)
+- **Cache**: enable/disable, max_size, TTL, similarity threshold
 - **Reranker**: model, top_n
 - **Logging**: level, trace directory, retention
 - **Evaluation**: test set path, output directory, frameworks
@@ -402,3 +417,4 @@ python scripts/start_monitoring.py
 | **Phase 5** | OneNote support + Streamlit Web UI + Local Prompt Versioning | ✅ Done |
 | **Phase 6** | Code knowledge ingestion + RepoMap | ✅ Done |
 | **Phase 7** | Observability (Phoenix tracing + MLflow evaluation tracking) | ✅ Done |
+| **Phase 8** | Query rewriter pipeline integration, OCR, query cache, language detection, notebook parsing, dependency graph RAG, auto test set generation | ✅ Done |
