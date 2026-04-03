@@ -40,27 +40,19 @@ def init_session_state() -> None:
             
             # Progress bar for initialization steps
             progress_bar = st.progress(0, text="Setting up logging...")
-            time.sleep(0.5)
             
-            progress_bar.progress(20, text="Loading configuration...")
+            progress_bar.progress(10, text="Loading configuration...")
             setup_logging()
             config = load_config()
-            time.sleep(0.5)
             
-            progress_bar.progress(40, text="Initializing vector store...")
-            time.sleep(0.5)
-            
-            progress_bar.progress(60, text="Loading LLM and embedding models...")
-            time.sleep(0.5)
-            
-            progress_bar.progress(80, text="Setting up retrieval pipeline...")
+            progress_bar.progress(30, text="Initializing vector store & embedding...")
             from src.pipeline import RAGPipeline
+            
+            progress_bar.progress(50, text="Loading retrieval pipeline (reranker, BM25)...")
             st.session_state.pipeline = RAGPipeline(config)
             st.session_state.config = config
-            time.sleep(0.5)
             
             progress_bar.progress(100, text="Ready! 🎉")
-            time.sleep(0.5)
             
         # Clear the loading screen
         loading_placeholder.empty()

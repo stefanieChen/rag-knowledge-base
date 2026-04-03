@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -46,9 +47,12 @@ def start_phoenix(port: int = 6006) -> subprocess.Popen:
         return None
 
     print(f"  Starting Phoenix on http://localhost:{port} ...")
+    env = os.environ.copy()
+    env["PHOENIX_PORT"] = str(port)
     proc = subprocess.Popen(
-        [sys.executable, "-m", "phoenix.server.main", "serve", "--port", str(port)],
+        [sys.executable, "-m", "phoenix.server.main", "serve"],
         cwd=str(PROJECT_ROOT),
+        env=env,
     )
     time.sleep(3)
     print(f"  Phoenix UI: http://localhost:{port}")
@@ -72,6 +76,12 @@ def start_mlflow(host: str = "127.0.0.1", port: int = 5000) -> subprocess.Popen:
 
     mlruns_dir = PROJECT_ROOT / "mlruns"
     mlruns_dir.mkdir(exist_ok=True)
+    mlartifacts_dir = PROJECT_ROOT / "mlartifacts"
+    mlartifacts_dir.mkdir(exist_ok=True)
+
+    # Convert Windows paths to file:/// URIs to avoid scheme-parsing errors
+    backend_uri = mlruns_dir.as_uri()
+    artifact_uri = mlartifacts_dir.as_uri()
 
     print(f"  Starting MLflow on http://{host}:{port} ...")
     proc = subprocess.Popen(
@@ -79,8 +89,8 @@ def start_mlflow(host: str = "127.0.0.1", port: int = 5000) -> subprocess.Popen:
             sys.executable, "-m", "mlflow", "server",
             "--host", host,
             "--port", str(port),
-            "--backend-store-uri", str(mlruns_dir),
-            "--default-artifact-root", str(PROJECT_ROOT / "mlartifacts"),
+            "--backend-store-uri", backend_uri,
+            "--default-artifact-root", artifact_uri,
         ],
         cwd=str(PROJECT_ROOT),
     )

@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 
 from langchain_core.documents import Document
 from langchain_ollama import ChatOllama
-from langchain.retrievers.document_compressors import LLMChainExtractor
+from langchain_classic.retrievers.document_compressors import LLMChainExtractor
 
 from src.config import load_config
 from src.logging.logger import get_logger
@@ -32,7 +32,8 @@ class ContextCompressor:
         compression_cfg = retrieval_cfg.get("context_compression", {})
 
         self.enabled: bool = bool(compression_cfg.get("enabled", False))
-        self._max_chunks: int = int(compression_cfg.get("max_chunks", 5))
+        compressor_llm_cfg = compression_cfg.get("llm", {})
+        self._max_chunks: int = int(compressor_llm_cfg.get("max_chunks", 5))
 
         if not self.enabled:
             self._compressor = None
@@ -40,7 +41,6 @@ class ContextCompressor:
             return
 
         llm_cfg = config.get("llm", {})
-        compressor_llm_cfg = compression_cfg.get("llm", {})
 
         model = compressor_llm_cfg.get("model", llm_cfg.get("model", "qwen2.5:7b"))
         base_url = compressor_llm_cfg.get("base_url", llm_cfg.get("base_url", "http://localhost:11434"))
