@@ -61,12 +61,26 @@ class Reranker:
     Set ``reranker.local_model_path`` in settings.yaml to use a pre-downloaded model.
     """
 
-    def __init__(self, config: Optional[dict] = None) -> None:
+    def __init__(self, config: Optional[dict] = None, lazy: bool = False) -> None:
         if config is None:
             config = load_config()
 
+        self._config = config
         rerank_cfg = config.get("reranker", {})
         self._top_n = rerank_cfg.get("top_n", 5)
+        self._model: Optional[CrossEncoder] = None
+        self._load_attempted = False
+
+        if not lazy:
+            self._load_model()
+
+    def _load_model(self) -> None:
+        """Load the cross-encoder model (called eagerly or on first rerank)."""
+        if self._load_attempted:
+            return
+        self._load_attempted = True
+
+        rerank_cfg = self._config.get("reranker", {})
         timeout = rerank_cfg.get("timeout", 30)
         max_retries = rerank_cfg.get("max_retries", 3)
         fallback_enabled = rerank_cfg.get("fallback_to_dense", True)
@@ -139,7 +153,11 @@ class Reranker:
         """
         if not results:
             return []
-        
+
+        # Lazy-load model on first rerank call
+        if not self._load_attempted:
+            self._load_model()
+
         # If reranker failed to initialize, return original results
         if self._model is None:
             logger.warning("Reranker not available, returning original results")

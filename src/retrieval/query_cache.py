@@ -12,6 +12,8 @@ import time
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+
 from src.config import load_config
 from src.logging.logger import get_logger
 
@@ -74,7 +76,7 @@ class QueryCache:
         return self._embedder
 
     def _cosine_similarity(self, a: List[float], b: List[float]) -> float:
-        """Compute cosine similarity between two vectors.
+        """Compute cosine similarity between two vectors using numpy.
 
         Args:
             a: First embedding vector.
@@ -83,12 +85,13 @@ class QueryCache:
         Returns:
             Cosine similarity score between 0 and 1.
         """
-        dot = sum(x * y for x, y in zip(a, b))
-        norm_a = sum(x * x for x in a) ** 0.5
-        norm_b = sum(x * x for x in b) ** 0.5
+        a_arr = np.asarray(a, dtype=np.float32)
+        b_arr = np.asarray(b, dtype=np.float32)
+        norm_a = np.linalg.norm(a_arr)
+        norm_b = np.linalg.norm(b_arr)
         if norm_a == 0 or norm_b == 0:
             return 0.0
-        return dot / (norm_a * norm_b)
+        return float(np.dot(a_arr, b_arr) / (norm_a * norm_b))
 
     def _make_key(self, query: str) -> str:
         """Generate a cache key from query text.
@@ -123,21 +126,23 @@ class QueryCache:
         self,
         query: str,
         embedder=None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[List[float]]]:
         """Look up a cached result for a similar query.
 
         First checks for an exact match (by hash), then falls back to
         embedding similarity search across all cached entries.
 
         Args:
-            query: The new query string.
+            query: The new query string (should include full cache key with params).
             embedder: Optional Embedder instance to reuse.
 
         Returns:
-            Cached result dict if found, None otherwise.
+            Tuple of (cached_result_or_None, query_embedding_or_None).
+            The embedding is returned so callers can reuse it in put()
+            without a redundant embedding call.
         """
         if not self._enabled:
-            return None
+            return None, None
 
         self._evict_expired()
 
@@ -149,14 +154,14 @@ class QueryCache:
                 self._cache.move_to_end(key)
                 self._hits += 1
                 logger.info(f"Cache HIT (exact): '{query[:50]}...'")
-                return entry["result"]
+                return entry["result"], None
             else:
                 del self._cache[key]
 
         # 2. Similarity match (embedding-based)
         if not self._cache:
             self._misses += 1
-            return None
+            return None, None
 
         emb = embedder or self._get_embedder()
         query_embedding = emb.embed_query(query)
@@ -180,23 +185,26 @@ class QueryCache:
                 f"Cache HIT (similarity={best_score:.4f}): "
                 f"'{query[:50]}...' ≈ '{best_entry['query'][:50]}...'"
             )
-            return best_entry["result"]
+            return best_entry["result"], query_embedding
 
         self._misses += 1
-        return None
+        return None, query_embedding
 
     def put(
         self,
         query: str,
         result: Dict[str, Any],
         embedder=None,
+        query_embedding: Optional[List[float]] = None,
     ) -> None:
         """Store a query result in the cache.
 
         Args:
-            query: The query string.
+            query: The query string (should include full cache key with params).
             result: The full pipeline result dict.
             embedder: Optional Embedder instance to reuse.
+            query_embedding: Pre-computed embedding from get() to avoid
+                             a redundant Ollama API call.
         """
         if not self._enabled:
             return
@@ -206,8 +214,10 @@ class QueryCache:
             evicted_key, _ = self._cache.popitem(last=False)
             logger.debug(f"Cache LRU eviction: {evicted_key}")
 
-        emb = embedder or self._get_embedder()
-        query_embedding = emb.embed_query(query)
+        # Reuse embedding from get() if available, otherwise compute
+        if query_embedding is None:
+            emb = embedder or self._get_embedder()
+            query_embedding = emb.embed_query(query)
 
         key = self._make_key(query)
         self._cache[key] = {

@@ -1,0 +1,7 @@
+[server]
+# Allow long-running queries (e.g. 262s retrieval) without WebSocket disconnect
+maxMessageSize = 500
+enableWebsocketCompression = true
+
+[browser]
+gatherUsageStats = false

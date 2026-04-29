@@ -85,7 +85,7 @@
 ```bash
 # 1. Create venv and install dependencies
 python -m venv venv
-venv\Scripts\activate        # Windows
+source venv/Scripts/activate # Windows (git bash)
 # source venv/bin/activate   # Linux/macOS
 pip install -r requirements.txt
 
@@ -211,24 +211,40 @@ retrieval:
   enable_reranker: true
 ```
 
-## Evaluation
+## Evaluation & Benchmarking (Unified CLI)
 
-The evaluation framework measures RAG quality using two complementary tools.
-
-### Running Evaluations
+Quality evaluation, performance benchmarks, and baseline comparison are consolidated into a single entry point:
 
 ```bash
-# Run both Ragas and DeepEval on the static test set
-python -m evaluation.run_evaluation --mode static
+# Quality evaluation only (Ragas + DeepEval)
+python -m evaluation.run --suite quality
 
-# Run only Ragas
+# Performance benchmarks only (latency, memory, cache)
+python -m evaluation.run --suite perf
+
+# Full suite (quality + performance)
+python -m evaluation.run --suite full
+
+# Save results as a new baseline
+python -m evaluation.run --suite full --save-baseline
+
+# Specific framework only
+python -m evaluation.run --suite quality --framework ragas
+
+# Static evaluation (uses test set contexts, no live pipeline)
+python -m evaluation.run --suite quality --mode static
+```
+
+The original standalone runners are still available:
+
+```bash
+# Standalone evaluation runner
+python -m evaluation.run_evaluation --mode static
 python -m evaluation.run_evaluation --framework ragas
 
-# Run only DeepEval
-python -m evaluation.run_evaluation --framework deepeval
-
-# Evaluate against the live pipeline (queries are actually run)
-python -m evaluation.run_evaluation --mode pipeline
+# Standalone benchmark runner
+python -m benchmarks.run_benchmark --save-baseline
+python -m benchmarks.run_benchmark --perf-only
 ```
 
 Results are saved as JSON in `evaluation/results/`.
@@ -297,6 +313,46 @@ python -m pytest tests/ -v
 
 If you modified a specific component, run only the relevant module for faster feedback (see above). All tests are designed to run without Ollama or a live LLM — they verify imports, data structures, and algorithmic logic only.
 
+## Regression Detection
+
+The benchmark framework measures pipeline performance and quality against live Ollama, establishes baselines, and detects regressions after code changes.
+
+> **Tip**: Use the unified CLI (`python -m evaluation.run --suite full`) or the standalone runner below.
+
+```bash
+# Compare two arbitrary result files
+python -m benchmarks.compare benchmarks/baselines/baseline_X.json benchmarks/results/run_Y.json
+```
+
+### What Gets Measured
+
+**Performance** (per-query, against live Ollama):
+- `pipeline_init_time_s` — cold-start initialization
+- `embedding_latency_ms` — single query embedding (p50/p95)
+- `retrieval_latency_ms` — dense + BM25 + RRF retrieval (p50/p95)
+- `total_latency_ms` — full end-to-end pipeline (p50/p95)
+- `bm25_rebuild_time_ms` — BM25 index rebuild
+- `cache_hit_rate`, `cache_speedup_ratio` — query cache effectiveness
+- `memory_peak_mb` — peak process memory
+
+**Quality** (aggregated over 22 test cases):
+- Ragas: faithfulness, answer_relevancy, context_precision, context_recall
+- DeepEval: hallucination, answer_relevancy, faithfulness
+- Retrieval: Recall@5, Recall@10, MRR
+
+### Regression Thresholds
+
+| Symbol | Status | Threshold |
+|--------|--------|----------|
+| :x: | Critical regression | Latency >20% slower or Quality >10% drop |
+| :warning: | Warning | Latency >5% slower or Quality >3% drop |
+| :white_check_mark: | Improved | Measurable improvement beyond threshold |
+| :heavy_minus_sign: | Stable | Within acceptable range |
+
+Thresholds are configurable in `benchmarks/config.yaml`. Exit code 1 is returned when critical regressions are detected (CI-friendly).
+
+Baseline results are saved in `benchmarks/baselines/` and run results in `benchmarks/results/`. See `benchmarks/README.md` for full details.
+
 ## Project Structure
 
 ```
@@ -338,12 +394,24 @@ rag_2/
 │   ├── pipeline.py              # End-to-end RAG pipeline
 │   └── main.py                  # Interactive Q&A entry point
 ├── evaluation/                  # RAG evaluation scripts (Phase 4)
+│   ├── run.py                   # **Unified CLI** (quality / perf / full)
 │   ├── evaluate_ragas.py        # Ragas metrics evaluation
 │   ├── evaluate_deepeval.py     # DeepEval metrics evaluation
-│   ├── run_evaluation.py        # Unified evaluation runner
+│   ├── run_evaluation.py        # Standalone evaluation runner
 │   ├── generate_test_set.py     # Auto test set generation (Ragas TestsetGenerator)
-│   └── test_set/                # Test datasets (JSON)
-├── app.py                       # Streamlit Web UI
+│   ├── test_set/                # Test datasets (JSON)
+│   └── results/                 # Evaluation & benchmark result files
+├── benchmarks/                  # Performance & quality benchmarking (Phase 9)
+│   ├── config.yaml              # Benchmark settings (iterations, warmup, thresholds)
+│   ├── perf_harness.py          # Latency, memory, cache benchmarks
+│   ├── quality_harness.py       # Retrieval recall (delegates to evaluation/ for Ragas/DeepEval)
+│   ├── compare.py               # Baseline vs current comparison + diff report
+│   ├── run_benchmark.py         # Standalone benchmark runner
+│   ├── test_sets/               # Benchmark Q/A test cases (JSON)
+│   ├── baselines/               # Saved baseline snapshots
+│   └── results/                 # Per-run result files
+├── .streamlit/config.toml       # Streamlit server config (timeouts, WebSocket)
+├── app.py                       # Streamlit Web UI (cached pipeline init)
 ├── logs/rag_traces/             # RAG trace JSON files
 ├── data/raw/                    # Place your documents here
 ├── requirements.txt
@@ -359,9 +427,11 @@ Edit `config/settings.yaml` to adjust:
 - **Retrieval**: top_k, top_n, similarity threshold, hybrid mode, RRF constant
 - **Query Rewriting**: enable/disable, strategy (hyde/multi_query/none)
 - **Cache**: enable/disable, max_size, TTL, similarity threshold
-- **Reranker**: model, top_n
+- **Reranker**: model, top_n (lazy-loaded on first query for faster startup)
 - **Logging**: level, trace directory, retention
 - **Evaluation**: test set path, output directory, frameworks
+
+Streamlit server settings are in `.streamlit/config.toml` (WebSocket message size, compression).
 
 ## Monitoring & Observability
 
@@ -418,3 +488,5 @@ python scripts/start_monitoring.py
 | **Phase 6** | Code knowledge ingestion + RepoMap | ✅ Done |
 | **Phase 7** | Observability (Phoenix tracing + MLflow evaluation tracking) | ✅ Done |
 | **Phase 8** | Query rewriter pipeline integration, OCR, query cache, language detection, notebook parsing, dependency graph RAG, auto test set generation | ✅ Done |
+| **Phase 9** | Benchmark & regression framework: perf/quality harness, comparison engine, critical bug fixes (cache key, cosine similarity, evaluation context) | ✅ Done |
+| **Phase 10** | Bug fixes & consolidation: fix answer not displaying on Web UI (latency_ms=0, session_state ordering), `@st.cache_resource` for pipeline init, lazy reranker loading, per-step retrieval timing, unified evaluation/benchmark CLI (`evaluation/run.py`), deduplicated quality_harness | ✅ Done |

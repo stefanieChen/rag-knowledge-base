@@ -1,0 +1,52 @@
+# Benchmark Configuration
+# =======================
+
+# Performance benchmark settings
+performance:
+  # Number of queries to run for latency measurement
+  iterations: 10
+  # Number of warmup queries (results discarded)
+  warmup: 2
+  # Whether to measure pipeline cold-start time
+  measure_init: true
+  # Whether to measure BM25 rebuild time
+  measure_bm25_rebuild: true
+  # Whether to track peak memory usage
+  measure_memory: true
+
+# Quality benchmark settings
+quality:
+  # Evaluation frameworks to run
+  frameworks:
+    - "ragas"
+    - "deepeval"
+  # Retrieval recall settings
+  retrieval_recall_k:
+    - 5
+    - 10
+  # Whether to compute MRR (Mean Reciprocal Rank)
+  compute_mrr: true
+
+# Regression thresholds (percentage change)
+# For latency metrics: positive delta = regression
+# For quality metrics: negative delta = regression
+thresholds:
+  # Latency regression thresholds
+  latency:
+    critical: 20.0    # > 20% slower = critical regression
+    warning: 5.0      # > 5% slower = warning
+  # Quality regression thresholds
+  quality:
+    critical: 10.0    # > 10% drop = critical regression
+    warning: 3.0      # > 3% drop = warning
+  # Init time threshold
+  init_time:
+    critical: 30.0
+    warning: 10.0
+
+# Test set path (relative to project root)
+test_set: "benchmarks/test_sets/benchmark_qa.json"
+
+# Output directories (relative to project root)
+baselines_dir: "benchmarks/baselines"
+results_dir: "benchmarks/results"

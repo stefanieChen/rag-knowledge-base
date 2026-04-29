@@ -133,13 +133,16 @@ class RAGPipeline:
 
         # Check cache before running full pipeline
         cache_key_params = f"{question}|{top_n}|{template_name}|{search_scope}"
-        cached = self._query_cache.get(cache_key_params)
+        cached, cache_embedding = self._query_cache.get(cache_key_params)
         if cached is not None:
             logger.info(f"Returning cached result for: '{question[:50]}...'")
             return cached
 
+        pipeline_start = time.perf_counter()
+
         with RAGTracer(self._config) as tracer:
             # 1. Query rewriting
+            rewrite_start = time.perf_counter()
             rewritten_query = None
             search_queries = [question]
 
@@ -154,6 +157,12 @@ class RAGPipeline:
                 except Exception as e:
                     logger.warning(f"Query rewrite failed, using original: {e}")
                     search_queries = [question]
+
+            rewrite_ms = int((time.perf_counter() - rewrite_start) * 1000)
+            logger.info(
+                f"Query rewrite ({self._query_rewrite_strategy}): "
+                f"{len(search_queries)} queries ({rewrite_ms}ms)"
+            )
 
             # Detect query language
             query_language = detect_language(question)
@@ -257,18 +266,25 @@ class RAGPipeline:
                                        chunk.get("rrf_score",
                                                   chunk.get("score", 0))),
                     "content_preview": chunk.get("content", "")[:200],
+                    "content_full": chunk.get("content", ""),
                 })
+
+            total_latency_ms = int(
+                (time.perf_counter() - pipeline_start) * 1000
+            )
 
             result = {
                 "answer": answer_text,
                 "sources": sources,
                 "trace_id": tracer.trace_id,
-                "latency_ms": tracer.data.get("latency_total_ms", 0),
+                "latency_ms": total_latency_ms,
                 "retrieval_mode": "hybrid" if self._hybrid_retriever else "dense",
             }
 
-            # Store in cache
-            self._query_cache.put(cache_key_params, result)
+            # Store in cache (reuse embedding from get() to avoid redundant API call)
+            self._query_cache.put(
+                cache_key_params, result, query_embedding=cache_embedding
+            )
 
             return result
 

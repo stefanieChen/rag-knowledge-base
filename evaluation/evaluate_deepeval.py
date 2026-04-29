@@ -129,8 +129,10 @@ def build_test_cases_from_pipeline(
         question = td["question"]
         result = pipeline.query(question)
 
+        # Use full content from sources (not the 200-char content_preview)
         retrieved_contexts = [
-            s.get("content_preview", "") for s in result.get("sources", [])
+            s.get("content_full", s.get("content_preview", ""))
+            for s in result.get("sources", [])
         ]
 
         case = LLMTestCase(

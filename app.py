@@ -28,7 +28,17 @@ st.set_page_config(
 )
 
 
-# ── Session state initialisation ─────────────────────────────
+# ── Cached pipeline initialisation ──────────────────────────
+@st.cache_resource(show_spinner=False)
+def _create_pipeline():
+    """Create and cache the RAG pipeline (survives Streamlit reruns)."""
+    setup_logging()
+    config = load_config()
+    from src.pipeline import RAGPipeline
+    pipeline = RAGPipeline(config)
+    return pipeline, config
+
+
 def init_session_state() -> None:
     """Initialise session state variables on first load."""
     if "pipeline" not in st.session_state:
@@ -42,14 +52,11 @@ def init_session_state() -> None:
             progress_bar = st.progress(0, text="Setting up logging...")
             
             progress_bar.progress(10, text="Loading configuration...")
-            setup_logging()
-            config = load_config()
-            
             progress_bar.progress(30, text="Initializing vector store & embedding...")
-            from src.pipeline import RAGPipeline
-            
             progress_bar.progress(50, text="Loading retrieval pipeline (reranker, BM25)...")
-            st.session_state.pipeline = RAGPipeline(config)
+
+            pipeline, config = _create_pipeline()
+            st.session_state.pipeline = pipeline
             st.session_state.config = config
             
             progress_bar.progress(100, text="Ready! 🎉")
@@ -433,7 +440,7 @@ if prompt := st.chat_input("Ask a question about your documents..."):
         with query_placeholder.container():
             st.markdown("🔍 **Searching your knowledge base...**")
             
-            # Step 1: Retrieval
+            # Step 1: Retrieval + Generation
             with st.spinner("🔎 Retrieving relevant documents..."):
                 result = st.session_state.pipeline.query(
                     question=prompt,
@@ -441,13 +448,16 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                     template_name=template_name,
                     search_scope=search_scope,
                 )
-            
-            # Step 2: Generation (if we found sources)
-            if result["sources"]:
-                with st.spinner("🤖 Generating answer with LLM..."):
-                    time.sleep(0.5)  # Brief pause to show the spinner
-            else:
-                st.warning("⚠️ No relevant documents found")
+
+        # Save to history BEFORE display so it survives Streamlit reruns
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": result["answer"],
+            "sources": result["sources"],
+            "latency_ms": result["latency_ms"],
+            "retrieval_mode": result["retrieval_mode"],
+            "trace_id": result["trace_id"],
+        })
         
         # Clear the progress indicator and show the answer
         query_placeholder.empty()
@@ -469,13 +479,3 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                     )
                     if src.get("content_preview"):
                         st.caption(src["content_preview"][:300])
-
-    # Save to history
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": result["answer"],
-        "sources": result["sources"],
-        "latency_ms": result["latency_ms"],
-        "retrieval_mode": result["retrieval_mode"],
-        "trace_id": result["trace_id"],
-    })

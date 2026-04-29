@@ -93,10 +93,10 @@ class HybridRetriever:
         if code_store and code_store.count > 0:
             self._bm25_code.build_from_vector_store(code_store)
 
-        # Lazy-load reranker (large model download on first use)
+        # Lazy-load reranker: defer model download to first query
         if enable_reranker:
             try:
-                self._reranker = Reranker(config)
+                self._reranker = Reranker(config, lazy=True)
             except Exception as e:
                 logger.warning(f"Reranker init failed, continuing without: {e}")
                 self._reranker = None
@@ -132,7 +132,7 @@ class HybridRetriever:
         start = time.perf_counter()
 
         # 1. Dense retrieval (vector similarity) — scope-aware
-        # Use configured similarity_threshold (not 0.0) to filter irrelevant results
+        dense_start = time.perf_counter()
         dense_doc_results = []
         dense_code_results = []
         if search_scope in ("all", "docs"):
@@ -145,8 +145,10 @@ class HybridRetriever:
                 query=query,
                 top_k=self._dense_top_k,
             )
+        dense_ms = int((time.perf_counter() - dense_start) * 1000)
 
         # 2. Sparse retrieval (BM25) — scope-aware
+        sparse_start = time.perf_counter()
         sparse_doc_results = []
         sparse_code_results = []
         if search_scope in ("all", "docs"):
@@ -159,6 +161,7 @@ class HybridRetriever:
                 query=query,
                 top_k=self._sparse_top_k,
             )
+        sparse_ms = int((time.perf_counter() - sparse_start) * 1000)
 
         # 3. RRF fusion — use separate lists per source so doc and code
         #    get equal weight instead of code dominating both merged lists
@@ -177,22 +180,25 @@ class HybridRetriever:
         dense_total = len(dense_doc_results) + len(dense_code_results)
         sparse_total = len(sparse_doc_results) + len(sparse_code_results)
         logger.info(
-            f"Hybrid fusion ({search_scope}): {dense_total} dense + "
-            f"{sparse_total} sparse → {len(fused)} fused "
+            f"Hybrid fusion ({search_scope}): {dense_total} dense ({dense_ms}ms) + "
+            f"{sparse_total} sparse ({sparse_ms}ms) → {len(fused)} fused "
             f"(RRF lists: {len(rrf_lists)})"
         )
 
         # 4. Optional reranking
+        rerank_start = time.perf_counter()
         if self._reranker and fused:
             candidates = fused[:top_n * 2]
             results = self._reranker.rerank(query, candidates, top_n=top_n)
         else:
             results = fused[:top_n]
+        rerank_ms = int((time.perf_counter() - rerank_start) * 1000)
 
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         logger.info(
             f"Hybrid search complete: '{query[:50]}' → "
-            f"{len(results)} results ({elapsed_ms}ms)"
+            f"{len(results)} results ({elapsed_ms}ms: "
+            f"dense={dense_ms}ms, sparse={sparse_ms}ms, rerank={rerank_ms}ms)"
         )
 
         return results

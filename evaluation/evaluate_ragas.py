@@ -105,8 +105,10 @@ def build_evaluation_dataset_from_pipeline(
         # Run pipeline to get actual answer + retrieved contexts
         result = pipeline.query(question)
         answer = result["answer"]
+        # Use full content from sources (not the 200-char content_preview)
         retrieved_contexts = [
-            s.get("content_preview", "") for s in result.get("sources", [])
+            s.get("content_full", s.get("content_preview", ""))
+            for s in result.get("sources", [])
         ]
 
         sample = SingleTurnSample(

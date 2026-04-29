@@ -277,19 +277,20 @@ class TestQueryCache:
         key = cache._make_key("what is rag")
         cache._cache[key] = cache._cache.pop("test_key")
 
-        result = cache.get("what is rag")
+        result, _embedding = cache.get("what is rag")
         assert result is not None
         assert result["answer"] == "RAG is..."
 
     def test_cache_miss(self):
         cache = self._make_cache()
-        result = cache.get("totally new question")
+        result, _embedding = cache.get("totally new question")
         assert result is None
 
     def test_cache_disabled(self):
         cache = self._make_cache(enabled=False)
         cache.put("question", {"answer": "test"})
-        assert cache.get("question") is None
+        result, _embedding = cache.get("question")
+        assert result is None
         assert cache.size == 0
 
     def test_lru_eviction(self):
@@ -321,7 +322,7 @@ class TestQueryCache:
             "timestamp": time.time() - 10,  # Expired 10s ago
         }
 
-        result = cache.get("old question")
+        result, _embedding = cache.get("old question")
         assert result is None
 
     def test_invalidate(self):

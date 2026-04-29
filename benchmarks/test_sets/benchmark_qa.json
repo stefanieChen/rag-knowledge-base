@@ -1,0 +1,199 @@
+[
+    {
+        "question": "What is RAG and how does it work?",
+        "ground_truth": "RAG (Retrieval-Augmented Generation) combines information retrieval with text generation. It first retrieves relevant documents from a knowledge base, then uses those documents as context for a language model to generate accurate answers.",
+        "contexts": [
+            "RAG (Retrieval-Augmented Generation) is a technique that enhances LLM outputs by first retrieving relevant documents from a knowledge base, then using those documents as context for generation.",
+            "The RAG pipeline works in three steps: 1) embed the user query, 2) search the vector store for similar documents, 3) feed the retrieved context to the LLM to generate an answer."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What embedding model does this system use?",
+        "ground_truth": "The system uses bge-m3 as the embedding model, served locally through Ollama. It supports Chinese and English bilingual text.",
+        "contexts": [
+            "The embedding model used is bge-m3, a multilingual embedding model that supports Chinese and English text. It is served via Ollama locally.",
+            "Embeddings are generated using OllamaEmbeddings with the bge-m3 model, which produces dense vector representations for semantic search."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does hybrid retrieval improve search quality?",
+        "ground_truth": "Hybrid retrieval combines dense vector search (semantic similarity) with BM25 sparse search (keyword matching) using Reciprocal Rank Fusion (RRF), followed by cross-encoder reranking to improve precision.",
+        "contexts": [
+            "Hybrid retrieval merges results from dense vector search and BM25 keyword-based search using Reciprocal Rank Fusion (RRF). This combines semantic understanding with exact keyword matching for better coverage.",
+            "After RRF fusion, a cross-encoder reranker (bge-reranker-v2-m3) scores each (query, document) pair to further improve ranking precision."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What document formats are supported for ingestion?",
+        "ground_truth": "The system supports PDF, PowerPoint (PPTX), Markdown, plain text, OneNote HTML exports, and Jupyter Notebook (.ipynb) files. It can also extract and describe images using a multimodal LLM and convert tables to Markdown with LLM summaries.",
+        "contexts": [
+            "Supported document formats include PDF (parsed via pymupdf4llm), PowerPoint PPTX (parsed via python-pptx), Markdown (section-based parser), plain text, OneNote HTML exports, and Jupyter Notebooks.",
+            "The system includes image handling using llava multimodal LLM for image description, and table handling that converts tables to Markdown format with optional LLM-generated summaries."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What is the chunking strategy used?",
+        "ground_truth": "The system uses RecursiveCharacterTextSplitter with a chunk size of 512 characters and 64 characters of overlap, using newline, period, and space as separators.",
+        "contexts": [
+            "Documents are chunked using RecursiveCharacterTextSplitter from LangChain with chunk_size=512 and chunk_overlap=64. The separators include newline, Chinese period, English period, and space."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does the query cache work?",
+        "ground_truth": "The query cache uses an LRU eviction strategy with configurable TTL. It first checks for exact matches via SHA-256 hash, then falls back to embedding cosine similarity search across cached entries with a configurable similarity threshold (default 0.95).",
+        "contexts": [
+            "The query cache stores recent query results and matches new queries by both exact hash and embedding cosine similarity. It uses OrderedDict for LRU eviction with configurable max_size and ttl_seconds.",
+            "Cache lookup first checks for an exact match by SHA-256 hash of the normalized query, then computes cosine similarity against all cached embeddings to find semantically similar past queries."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "Explain the Reciprocal Rank Fusion algorithm used in retrieval.",
+        "ground_truth": "RRF merges multiple ranked result lists by computing a score for each document: sum(1/(k+rank_i)) across all lists, where k is a constant (default 60) and rank_i is the 1-based rank. Documents are then sorted by their RRF score descending.",
+        "contexts": [
+            "Reciprocal Rank Fusion merges multiple ranked lists. For each document d, the RRF score = sum(1/(k + rank_i)) across all lists where rank_i is the 1-based rank of d. The constant k defaults to 60 as per the original paper.",
+            "RRF deduplicates results by chunk_id and produces a single merged ranking, ensuring that documents appearing in multiple retrieval results get higher combined scores."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What is HyDE query rewriting?",
+        "ground_truth": "HyDE (Hypothetical Document Embeddings) generates a hypothetical document passage that would answer the user's question, then uses that passage instead of the original query for embedding-based retrieval. This can improve retrieval when the query style differs from document style.",
+        "contexts": [
+            "HyDE query rewriting generates a hypothetical answer passage using the LLM, then uses that passage for embedding search instead of the original query. This bridges the gap between query-style and document-style text.",
+            "The HyDERewriter uses a ChatOllama LLM with a prompt that instructs it to write a plausible knowledge base passage, not to answer the question directly."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does the cross-encoder reranker work?",
+        "ground_truth": "The cross-encoder reranker (bge-reranker-v2-m3) scores each (query, document) pair independently using a transformer model. It re-sorts retrieval results by relevance score and returns the top-n most relevant results. It supports both local model loading and HuggingFace download with retry logic.",
+        "contexts": [
+            "The Reranker class uses sentence-transformers CrossEncoder to score (query, document) pairs. It first tries to load a local model from the configured path, falling back to downloading from HuggingFace with retry logic.",
+            "After scoring all candidate pairs, results are sorted by rerank_score descending and the top_n results are returned. If the reranker fails to initialize, it falls back to returning the original unranked results."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What vector database does the system use and how is it configured?",
+        "ground_truth": "The system uses ChromaDB with persistent storage. It uses cosine similarity via HNSW indexing. There are two separate collections: one for documents (rag_knowledge_base) and one for code (rag_code_base).",
+        "contexts": [
+            "ChromaDB is used as the vector store with PersistentClient for durable storage. Collections use HNSW with cosine distance metric.",
+            "The pipeline maintains two VectorStore instances: a document store (collection: rag_knowledge_base) and a code store (collection: rag_code_base), sharing the same embedder instance."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does the BM25 sparse retrieval index get built?",
+        "ground_truth": "The BM25 index is built by fetching all documents from ChromaDB in batches of 1000, tokenizing each document's content using a custom tokenizer that handles both natural language and code (including CJK characters and camelCase/snake_case splitting), then constructing a BM25Okapi index.",
+        "contexts": [
+            "BM25Store.build_from_vector_store fetches all documents from ChromaDB in batches, then calls build() which tokenizes each document using _tokenize() and creates a BM25Okapi index.",
+            "The tokenizer handles mixed Chinese/English text by splitting on CJK character boundaries and also splits code identifiers (snake_case, camelCase, PascalCase) into sub-tokens for better keyword matching."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What code languages are supported for AST-based chunking?",
+        "ground_truth": "AST-based chunking via ASTChunk is supported for Python, Java, C#, and TypeScript. Other languages fall back to LangChain's language-aware text splitting.",
+        "contexts": [
+            "ASTChunk-supported languages for AST-based chunking include python, java, csharp, and typescript. Other supported code file extensions fall back to LangChain-based splitting.",
+            "The code_ingestion.ast_languages config lists python, java, csharp, and typescript as languages that use AST-based chunking to preserve code structure."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does the RepoMap feature work for code repositories?",
+        "ground_truth": "RepoMap extracts definitions (classes, functions, methods) and references from source files using tree-sitter, builds a directed graph of symbol relationships, ranks symbols by importance using PageRank, and generates a concise repository map text for LLM context injection.",
+        "contexts": [
+            "RepoMap uses tree-sitter to parse source files, extracting definitions and references. It builds a directed graph with networkx, computes PageRank to identify important symbols, and generates a concise text map.",
+            "When code queries are made, the pipeline can inject the repo map text as additional context, along with dynamically pulled dependency context for referenced symbols."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What evaluation metrics are used to measure RAG quality?",
+        "ground_truth": "Ragas measures faithfulness, answer relevancy, context precision, and context recall. DeepEval measures hallucination, answer relevancy, and faithfulness. Both use the local Ollama LLM as the judge model.",
+        "contexts": [
+            "Ragas evaluation covers four metrics: Faithfulness (grounding in context), Answer Relevancy, Context Precision (ranking of relevant contexts), and Context Recall (coverage of ground truth).",
+            "DeepEval measures Hallucination (fabricated info), Answer Relevancy, and Faithfulness using a custom OllamaDeepEvalLLM wrapper that calls the local Ollama server."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does the prompt template versioning system work?",
+        "ground_truth": "Prompt templates are stored as YAML files in config/prompts/. Each template has a version, system_prompt, and description field. The PromptVersionManager supports creating new versions, listing available templates, and programmatic template selection. Templates appear automatically in both CLI and Web UI.",
+        "contexts": [
+            "Prompt templates are versioned YAML files in config/prompts/. New versions can be created by copying and editing existing templates, or programmatically via PromptVersionManager.",
+            "The prompt registry loads all YAML templates from the prompts directory and makes them available by name. The Web UI sidebar provides a template selector dropdown."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What monitoring and observability tools are integrated?",
+        "ground_truth": "The system integrates Arize Phoenix for RAG pipeline trace visualization via OpenTelemetry, and MLflow for evaluation experiment tracking. Both are optional and configured in settings.yaml. RAGTracer also produces per-query JSON trace files.",
+        "contexts": [
+            "Arize Phoenix provides RAG pipeline trace visualization through OpenTelemetry instrumentation. It sends spans to a local Phoenix server for viewing retrieval and generation traces.",
+            "MLflow tracks evaluation metrics across runs with parameter snapshots. The RAGTracer produces structured JSON trace files per query for detailed retrospection."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What is the context compression feature?",
+        "ground_truth": "Context compression uses LangChain's LLMChainExtractor to trim retrieved chunks before passing them to the generator. It keeps only the most relevant spans of text from each chunk. When disabled or on failure, it falls back to simple truncation based on max_chunks setting.",
+        "contexts": [
+            "ContextCompressor wraps LangChain's LLMChainExtractor to compress retrieved chunks. It converts chunks to LangChain Documents, runs compression, and maps results back to the original chunk format.",
+            "If compression is disabled or fails, it falls back to truncation: simply keeping the first max_chunks entries ordered by their retrieval score."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does incremental code ingestion work?",
+        "ground_truth": "Incremental code ingestion compares SHA-256 content hashes of source files against stored hashes in the vector store. Unchanged files are skipped, modified files have old chunks deleted then re-ingested, and files that no longer exist on disk are cleaned up from the store.",
+        "contexts": [
+            "run_code_ingestion computes SHA-256 hashes for each file and compares against existing_hashes from the vector store. Files with matching hashes are skipped entirely.",
+            "Modified files have their old chunks deleted via delete_by_source_file before re-ingestion. Deleted files (in store but not on disk) are also cleaned up."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does the multi-query rewrite strategy work?",
+        "ground_truth": "Multi-query rewriting generates 3 alternative versions of the user's question from different angles using the LLM. These queries plus the original are all run through retrieval, and the results are merged via Reciprocal Rank Fusion for broader coverage.",
+        "contexts": [
+            "MultiQueryRewriter uses a ChatOllama LLM to generate 3 alternative query formulations. The original query plus rewrites are all used for retrieval.",
+            "In the pipeline, multi-query results are collected from each query separately, then merged using reciprocal_rank_fusion to deduplicate and rank the combined results."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "What LLM model is used for answer generation and what are its settings?",
+        "ground_truth": "The system uses qwen2.5:7b served via Ollama with temperature 0.1 and a 4096 context window. The Generator uses ChatOllama with LCEL chain composition: ChatPromptTemplate | ChatOllama | StrOutputParser.",
+        "contexts": [
+            "The default LLM is qwen2.5:7b with temperature=0.1 and num_ctx=4096, configured in settings.yaml under the llm section.",
+            "Generator composes an LCEL chain using ChatPromptTemplate, ChatOllama, and StrOutputParser. It supports optional few-shot example injection and DSPy prompt optimization."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does the language detection feature work in the pipeline?",
+        "ground_truth": "The pipeline uses langdetect to automatically detect the language of user queries. The detected language is logged in the RAG trace for analytics. This information helps the system respond in the same language as the query.",
+        "contexts": [
+            "Language detection uses the langdetect library to identify the query language. The detected language code (e.g., 'zh', 'en') is recorded in the RAG trace.",
+            "The detect_language function is called on every query in the pipeline and the result is passed to the tracer's log_query method."
+        ],
+        "expected_source_files": []
+    },
+    {
+        "question": "How does the system handle image content in documents?",
+        "ground_truth": "Images extracted from PDF and PPTX files are processed in two ways: llava multimodal LLM generates semantic descriptions of the image content, and Tesseract OCR extracts any text visible in the image. Both outputs can be combined and indexed as searchable chunks.",
+        "contexts": [
+            "The image_handler module uses llava multimodal LLM via Ollama for semantic image description and pytesseract for OCR text extraction from images.",
+            "Extracted image descriptions and OCR text are treated as additional document content and chunked alongside the regular document text for indexing."
+        ],
+        "expected_source_files": []
+    }
+]
